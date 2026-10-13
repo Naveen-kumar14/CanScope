@@ -1,0 +1,25 @@
+# Build outputs
+build/
+firmware/*/.pio/
+dashboard/node_modules/
+dashboard/dist/
+dashboard/coverage/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Secrets - never commit Wi-Fi credentials, tokens or keys
+*.env
+.env*
+secrets.h
+**/secrets/*
+*.pem
+*.key
+
+# Captures: only commit captures that are explicitly approved and non-private.
+# Put private or vehicle captures in captures/private/ (ignored).
+captures/private/
