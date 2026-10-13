@@ -6,7 +6,7 @@ Canonical task file: `TASK.md` (no `task.md` existed; only this file is used).
 
 - Phase: phase 1 (repository foundation) **software-complete** as of 2026-10-13. Next phase: Stage 0/1 hardware inventory and evidence.
 - Overall state: all firmware targets build, and the host and dashboard tests pass. **No hardware or protocol value is verified.** Node 3 is blocked on its pin map and role.
-- Git: folder is not yet a Git repository, so there are no commits (user decision pending).
+- Git: local repo on branch `main`, tracking `origin` = https://github.com/Naveen-kumar14/CanScope.git (see the 2026-10-13 Git entry).
 
 ---
 
@@ -155,4 +155,38 @@ None.
 ### Next concrete action
 
 The user should identify (photo or part number) each ESP32 module and the CAN transceiver module, and share the Node 3 component list or schematic. With that, fill `docs/hardware-status.md` and `docs/wiring/node-3-pin-map.md`, then run bring-up stages 1–2 (power/continuity, about 60 Ω CANH–CANL check) and record the measurements here.
-Optional, in the repo: `git init` and a first set of focused commits, if the user approves.
+Optional, in the repo: `git init` and a first set of focused commits, if the user approves. *(Done; see the next entry.)*
+
+---
+
+## 2026-10-13 — Session 1, Git repository and GitHub remote
+
+### Summary
+
+The user asked for a repository under the GitHub account `Naveen-kumar14`, and then created `https://github.com/Naveen-kumar14/CanScope.git` themselves. The local folder is now a Git repo pushed to it.
+
+### Work completed
+
+- `git init -b main` in the project root. Author identity is the existing global git config (Naveen Kumar).
+- Before committing, checked that `.gitignore` excludes `build/`, `dashboard/node_modules/`, `dashboard/dist/` and `firmware/*/.pio/`, and grepped the 91 files for secret keywords (password/ssid/api key/token/private key). The only hits were policy text, never actual secrets.
+- Focused commits:
+  `ae9c146` chore: add existing CANScope brief, task spec and test sketches ·
+  `2a51dcc` chore: create CANScope repository structure ·
+  `4cd36cd` firmware: add shared CAN transport foundation ·
+  `5a0ee74` firmware: scaffold node1, node2, Node 3 and monitor targets ·
+  `bcd671a` test: add host unit tests for portable firmware code ·
+  `9ee99ff` dashboard: add read-only CAN monitoring shell with mock data and tests ·
+  `b72ffdd` docs: record hardware assumptions and verification gates ·
+  `2571078` docs: add TASK.md session log ·
+  `2dfe591` chore: keep shell scripts LF-only (`.gitattributes`: `* text=auto`, `*.sh text eol=lf`).
+- `git remote add origin https://github.com/Naveen-kumar14/CanScope.git`. `git ls-remote origin` returned no refs (an empty repo), so nothing could be overwritten.
+- `git push -u origin main` → `* [new branch] main -> main`, `branch 'main' set up to track 'origin/main'`.
+
+### Notes
+
+- The GitHub CLI was not installed. `winget install GitHub.cli` was started but stopped once the user supplied the repo URL, and `C:\Program Files\GitHub CLI\gh.exe` is not present. The push used Git Credential Manager.
+- The original sketches and briefs are committed unchanged (commit `ae9c146`).
+
+### Next concrete action
+
+Unchanged: hardware inventory (ESP32 modules, transceiver part number, Node 3 component list or schematic), then bring-up stages 1–2. From now on, work is committed in small commits and pushed to `origin/main`.
