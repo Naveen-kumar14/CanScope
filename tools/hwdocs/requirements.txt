@@ -1,0 +1,4 @@
+# Documentation / video generators (tools/hwdocs, video/source). Not needed for firmware or dashboard.
+pillow==12.3.0
+reportlab==5.0.1
+imageio-ffmpeg==0.6.0

@@ -1,0 +1,180 @@
+{
+  "meta": {
+    "title": "CANScope canonical pin ledger",
+    "revision": "Rev 2.0-draft",
+    "date": "2026-10-16",
+    "rule": "This file is the single source of truth for every physical wire. The Rev 2 manual, every wiring diagram, the video storyboard/narration and the wire coverage checklist are generated from it by tools/hwdocs. Edit this file, never the generated outputs.",
+    "physical_inspection": "NONE. No board, module or wire has been physically inspected or measured by Claude. Every status below is based on documents and repository source only.",
+    "status_legend": {
+      "CONFIRMED": "Design value supported by a named datasheet or repository source AND it depends on no unidentified physical part. Still check both ends against the printed labels before wiring.",
+      "PROVISIONAL": "Design is supported by documents, but depends on a physical detail that only the builder can see. Wire it ONLY after every gate listed for it has passed and been recorded in the sign-off sheet.",
+      "BLOCKED": "Do NOT wire. Required information is missing. Supply the named evidence so the ledger can be updated first."
+    }
+  },
+
+  "evidence": {
+    "E-TI": "Texas Instruments SN65HVD23x datasheet SLOS346O (rev. April 2018): pin 1 D (TXD input), 2 GND, 3 VCC (3.0-3.6 V recommended, 6 V abs max), 4 R (RXD output), 5 Vref, 6 CANL, 7 CANH, 8 Rs. Rs strong pull-down = high-speed, 10-100 kOhm to GND = slope control, >=0.75 VCC = standby (driver OFF, receiver listen-only). D/R abs max VCC + 0.5 V. ICC 10 mA typ / 17 mA max. Package marking VP230.",
+    "E-ESP32": "Espressif ESP32 Series datasheet: strapping pins GPIO0, GPIO2, GPIO5, MTDI (GPIO12), MTDO (GPIO15); GPIO34-39 input-only with no internal pull-ups; internal pull-up about 45 kOhm.",
+    "E-WROOM": "Espressif ESP32-WROOM-32 datasheet v3.8: GPIO6-11 connected to the integrated SPI flash (do not use); IO16 (module pin 27) and IO17 (module pin 28) are ordinary GPIOs on WROOM-32 (they are PSRAM pins only on WROVER modules).",
+    "E-ARD": "framework-arduinoespressif32, variants/esp32/pins_arduino.h (installed in C:/canscope-pio): SDA = 21, SCL = 22 (Wire default pins for board esp32dev); TX = 1, RX = 3 (USB serial UART0).",
+    "E-FW": "Repository firmware: firmware/node1/include/node1_hw_config.h, firmware/node2/include/node2_hw_config.h and firmware/monitor/include/monitor_hw_config.h set CAN TX GPIO17, RX GPIO16, 500 kbit/s; sketch_node1_test.ino and sketch_node2_test.ino use the same. firmware/node3 refuses to start CAN (all values UNVERIFIED).",
+    "E-DOIT": "Widely published DOIT ESP32 DevKit V1 30-pin silkscreen order. This is NOT a manufacturer schematic: clone boards vary, so gate G2 compares it with the builder's board.",
+    "E-CALC": "Hand calculation recorded in validation/correction_register.md (LED current, base drive, termination)."
+  },
+
+  "esp32_header": {
+    "board": "ESP32 DevKit V1, 30-pin, ESP-WROOM-32 (as stated by the user; not yet photographed)",
+    "orientation": "Board viewed from the component side, USB connector pointing LEFT. Position 1 is the pin nearest the USB connector on each header.",
+    "rows": {
+      "3V3-side": {
+        "silk": ["3V3", "GND", "D15", "D2", "D4", "RX2", "TX2", "D5", "D18", "D19", "D21", "RX0", "TX0", "D22", "D23"],
+        "gpio": [null, null, 15, 2, 4, 16, 17, 5, 18, 19, 21, 3, 1, 22, 23]
+      },
+      "VIN-side": {
+        "silk": ["VIN", "GND", "D13", "D12", "D14", "D27", "D26", "D25", "D33", "D32", "D35", "D34", "VN", "VP", "EN"],
+        "gpio": [null, null, 13, 12, 14, 27, 26, 25, 33, 32, 35, 34, 39, 36, null]
+      }
+    },
+    "avoid": {
+      "flash": [6, 7, 8, 9, 10, 11],
+      "strapping": [0, 2, 5, 12, 15],
+      "input_only": [34, 35, 36, 39],
+      "usb_serial": [1, 3]
+    }
+  },
+
+  "gates": {
+    "G1": {"title": "ESP32 module identity", "when": "Before any wire", "procedure": "Read the laser marking on the metal shield of each ESP32. Photograph it.", "pass": "It reads ESP32-WROOM-32 (or WROOM-32D/32E/32U). Not WROVER, not ESP32-S2/S3/C3.", "fail": "STOP. GPIO16/17 may be PSRAM pins. Send the photo; the ledger must be revised."},
+    "G2": {"title": "Header silkscreen matches the ledger", "when": "Before any wire", "procedure": "With USB pointing left, read every pin label on both headers and compare with the 30-pin table (3V3 side: 3V3, GND, D15, D2, D4, RX2, TX2, D5, D18, D19, D21, RX0, TX0, D22, D23; VIN side: VIN, GND, D13, D12, D14, D27, D26, D25, D33, D32, D35, D34, VN, VP, EN).", "pass": "All 30 labels match in the same order.", "fail": "STOP. Do not count pins from the diagram. Send a photo of both headers."},
+    "G3": {"title": "Breadboard fit", "when": "When seating each ESP32", "procedure": "Seat the ESP32 across the centre trench. Count free holes beside each pin row.", "pass": "At least one free hole remains in the same 5-hole strip as every pin, on both sides.", "fail": "Do not force it. Bridge the board across two breadboards (one header row in each) or use female-to-male jumpers on the header pins. Record which."},
+    "G4": {"title": "Transceiver module identity and labels", "when": "Before wiring a transceiver", "procedure": "Read the 8-pin IC marking (expect VP230) and every printed pin label. Check whether the module has any 5 V pin or a voltage regulator. Photograph front and back.", "pass": "IC reads VP230; supply pin is labelled 3V3/3.3V/VCC with no 5 V-only marking; you can find pins equivalent to 3V3, GND, CTX (TXD/D), CRX (RXD/R), CANH, CANL.", "fail": "STOP. Different IC or a 5 V module needs a new design review."},
+    "G5": {"title": "Transceiver Rs (mode) pin", "when": "After G4", "procedure": "If the module exposes a pin labelled RS, S or STB: it must be wired to GND (see the conditional rows). If not exposed: with all power removed, measure resistance from IC pin 8 (Rs) to IC pin 2 (GND).", "pass": "Exposed RS pin wired to GND, OR measured Rs-GND below 100 Ohm (high-speed mode per TI SLOS346O).", "fail": "Rs-GND 10-100 kOhm (slope control) or open/high (standby, cannot transmit or ACK): STOP and record the value."},
+    "G6": {"title": "Onboard termination", "when": "Before installing RT1/RT2", "procedure": "With the module unpowered and NOT connected to anything, measure CANH to CANL on each transceiver module.", "pass": "Reading above 10 kOhm (no onboard terminator) on all three modules: fit RT1 and RT2 exactly as the ledger says.", "fail": "About 120 Ohm on a module: it has an onboard terminator. On TRX1/TRX3 omit the external RT1/RT2 at that node. On TRX2 (middle node): STOP, the onboard resistor must be removed or its jumper opened; send a photo first."},
+    "G7": {"title": "OLED labels", "when": "Before wiring the OLED", "procedure": "Read the four header labels left to right and the address marking on the back (0x78 = 0x3C, 0x7A = 0x3D).", "pass": "Labels GND, VCC (or VDD), SCL (or SCK), SDA are present; record their order and address.", "fail": "Different labels (e.g. SPI pins CS/DC/RES): STOP, it is not an I2C module."},
+    "G8": {"title": "Push-button contacts", "when": "Before inserting each button", "procedure": "Continuity mode: probe two diagonally opposite legs. Released: open. Pressed: beep / near 0 Ohm.", "pass": "Diagonal legs are open when released and closed when pressed.", "fail": "Rotate the meter probes to find a released-open / pressed-closed leg pair; record it and use it instead of the diagonal pair."},
+    "G9": {"title": "LED polarity", "when": "Before inserting each LED", "procedure": "Long leg = anode (+). Flat edge on the rim = cathode (-). Confirm with the meter diode-test mode (red probe on anode lights the LED faintly).", "pass": "Anode and cathode identified for every LED.", "fail": "Legs cut equal and no flat edge visible: use diode test only."},
+    "G10": {"title": "Transistor part and pinout", "when": "Before inserting Q1", "procedure": "Read the transistor marking. Look up E/B/C in that exact part's manufacturer datasheet. Common TO-92 examples (flat face toward you, legs down, left to right): PN2222A E-B-C; 2N3904 E-B-C; S8050 E-B-C; BC547 C-B-E. Your part may differ.", "pass": "Part number and E/B/C order recorded from its own datasheet; Ic(max) >= 100 mA; NPN.", "fail": "Unknown marking or PNP: STOP."},
+    "G11": {"title": "Buzzer identity", "when": "Before wiring the buzzer", "procedure": "Confirm it is ACTIVE (sounds on plain DC), rated 5 V, current <= 30 mA, and find + (marked or longer leg). Note whether it is electromagnetic (needs flyback diode) or piezo.", "pass": "Active 5 V, <= 30 mA, + identified, type recorded.", "fail": "Passive buzzer, > 30 mA, or no polarity mark: STOP for design review."},
+    "G12": {"title": "Node 3 VIN voltage", "when": "First power-up of Node 3, buzzer + wire NOT installed", "procedure": "Node 3 on USB only. Measure VIN to GND in DC volts.", "pass": "Between 4.4 V and 5.25 V.", "fail": "Outside that range: do not install the buzzer supply wire; record value."},
+    "G13": {"title": "Resistor values", "when": "Before inserting each resistor", "procedure": "Measure every resistor out of circuit.", "pass": "220 Ohm: 209-231; 120 Ohm: 114-126; 1 kOhm: 950-1050; 10 kOhm: 9.5k-10.5k.", "fail": "Wrong value: set it aside."},
+    "G14": {"title": "Breadboard rails", "when": "Before using a rail", "procedure": "Continuity from one end of each rail to the other.", "pass": "Continuous end to end, or the split point is marked.", "fail": "Split rail: add a short bridge jumper on the same rail only, or keep loads on one half."}
+  },
+
+  "components": {
+    "ESP1": {"node": 1, "name": "ESP32 DevKit V1 (Node 1, Motor ECU)", "kind": "esp32", "gates": ["G1", "G2", "G3"]},
+    "ESP2": {"node": 2, "name": "ESP32 DevKit V1 (Node 2, Battery ECU)", "kind": "esp32", "gates": ["G1", "G2", "G3"]},
+    "ESP3": {"node": 3, "name": "ESP32 DevKit V1 (Node 3, CANScope monitor)", "kind": "esp32", "gates": ["G1", "G2", "G3"]},
+    "TRX1": {"node": 1, "name": "SN65HVD230 module (Node 1)", "kind": "transceiver", "pins": ["3V3", "GND", "CTX", "CRX", "CANH", "CANL"], "gates": ["G4", "G5", "G6"]},
+    "TRX2": {"node": 2, "name": "SN65HVD230 module (Node 2)", "kind": "transceiver", "pins": ["3V3", "GND", "CTX", "CRX", "CANH", "CANL"], "gates": ["G4", "G5", "G6"]},
+    "TRX3": {"node": 3, "name": "SN65HVD230 module (Node 3)", "kind": "transceiver", "pins": ["3V3", "GND", "CTX", "CRX", "CANH", "CANL"], "gates": ["G4", "G5", "G6"]},
+    "RAIL3": {"node": 3, "name": "Breadboard B rails (Node 3 only)", "kind": "rail", "pins": ["3V3+", "GND-", "GNDtop"], "gates": ["G14"]},
+    "OLED": {"node": 3, "name": "SSD1306 0.96 in I2C OLED, 128x64, 4-pin", "kind": "oled", "pins": ["GND", "VCC", "SCL", "SDA"], "gates": ["G7"]},
+    "R_G": {"node": 3, "name": "220 Ohm (green LED)", "kind": "resistor", "value": "220", "pins": ["1", "2"], "gates": ["G13"]},
+    "R_Y": {"node": 3, "name": "220 Ohm (yellow LED)", "kind": "resistor", "value": "220", "pins": ["1", "2"], "gates": ["G13"]},
+    "R_R": {"node": 3, "name": "220 Ohm (red LED)", "kind": "resistor", "value": "220", "pins": ["1", "2"], "gates": ["G13"]},
+    "LED_G": {"node": 3, "name": "Green LED", "kind": "led", "pins": ["A", "K"], "gates": ["G9"]},
+    "LED_Y": {"node": 3, "name": "Yellow LED", "kind": "led", "pins": ["A", "K"], "gates": ["G9"]},
+    "LED_R": {"node": 3, "name": "Red LED", "kind": "led", "pins": ["A", "K"], "gates": ["G9"]},
+    "BTN_A": {"node": 3, "name": "Tactile button A", "kind": "button", "pins": ["L1", "L2", "L3", "L4"], "gates": ["G8"]},
+    "BTN_B": {"node": 3, "name": "Tactile button B", "kind": "button", "pins": ["L1", "L2", "L3", "L4"], "gates": ["G8"]},
+    "R_B": {"node": 3, "name": "1 kOhm base resistor", "kind": "resistor", "value": "1k", "pins": ["1", "2"], "gates": ["G13"], "extra": true},
+    "R_PD": {"node": 3, "name": "10 kOhm base pull-down", "kind": "resistor", "value": "10k", "pins": ["1", "2"], "gates": ["G13"], "extra": true},
+    "Q1": {"node": 3, "name": "NPN transistor (part TBD)", "kind": "npn", "pins": ["E", "B", "C"], "gates": ["G10"], "extra": true},
+    "BZ1": {"node": 3, "name": "5 V active buzzer", "kind": "buzzer", "pins": ["+", "-"], "gates": ["G11"]},
+    "D1": {"node": 3, "name": "1N4148 flyback diode (only if buzzer is electromagnetic)", "kind": "diode", "pins": ["A", "K"], "gates": ["G11"], "extra": true},
+    "RT1": {"node": 1, "name": "120 Ohm terminator, bus end A", "kind": "resistor", "value": "120", "pins": ["1", "2"], "gates": ["G6", "G13"]},
+    "RT2": {"node": 3, "name": "120 Ohm terminator, bus end B", "kind": "resistor", "value": "120", "pins": ["1", "2"], "gates": ["G6", "G13"]}
+  },
+
+  "connections": [
+    {"id": "N1-01", "node": 1, "stage": "node1", "from": "ESP1:3V3", "to": "TRX1:3V3", "signal": "3V3_N1", "kind": "jumper", "color": "red", "domain": "3.3 V (Node 1 only)", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-TI"], "verify": "Power off: continuity ESP1 3V3 pin to TRX1 3V3 pin; no continuity to any GND or 5 V point."},
+    {"id": "N1-02", "node": 1, "stage": "node1", "from": "ESP1:GND", "to": "TRX1:GND", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G2", "G4"], "design_evidence": ["E-TI"], "verify": "Continuity ESP1 GND to TRX1 GND."},
+    {"id": "N1-03", "node": 1, "stage": "node1", "from": "ESP1:TX2", "to": "TRX1:CTX", "signal": "CAN_TX_N1 (GPIO17)", "kind": "jumper", "color": "white", "domain": "3.3 V logic, ESP32 output", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-FW", "E-WROOM", "E-TI"], "verify": "Continuity TX2 pin to CTX pin; NOT to CRX."},
+    {"id": "N1-04", "node": 1, "stage": "node1", "from": "ESP1:RX2", "to": "TRX1:CRX", "signal": "CAN_RX_N1 (GPIO16)", "kind": "jumper", "color": "brown", "domain": "3.3 V logic, ESP32 input", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-FW", "E-WROOM", "E-TI"], "verify": "Continuity RX2 pin to CRX pin; NOT to CTX."},
+    {"id": "N1-05", "node": 1, "stage": "bus", "from": "RT1:1", "to": "TRX1:CANH", "signal": "CANH (end A terminator)", "kind": "lead", "color": "component", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G6", "G13"], "design_evidence": ["E-CALC"], "verify": "Fit only if G6 found no onboard terminator on TRX1."},
+    {"id": "N1-06", "node": 1, "stage": "bus", "from": "RT1:2", "to": "TRX1:CANL", "signal": "CANL (end A terminator)", "kind": "lead", "color": "component", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G6", "G13"], "design_evidence": ["E-CALC"], "verify": "RT1 measured 114-126 Ohm before fitting."},
+
+    {"id": "N2-01", "node": 2, "stage": "node2", "from": "ESP2:3V3", "to": "TRX2:3V3", "signal": "3V3_N2", "kind": "jumper", "color": "red", "domain": "3.3 V (Node 2 only)", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-TI"], "verify": "Continuity ESP2 3V3 to TRX2 3V3. NO continuity to Node 1 3V3."},
+    {"id": "N2-02", "node": 2, "stage": "node2", "from": "ESP2:GND", "to": "TRX2:GND", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G2", "G4"], "design_evidence": ["E-TI"], "verify": "Continuity ESP2 GND to TRX2 GND."},
+    {"id": "N2-03", "node": 2, "stage": "node2", "from": "ESP2:TX2", "to": "TRX2:CTX", "signal": "CAN_TX_N2 (GPIO17)", "kind": "jumper", "color": "white", "domain": "3.3 V logic, ESP32 output", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-FW", "E-WROOM", "E-TI"], "verify": "Continuity TX2 pin to CTX pin; NOT to CRX."},
+    {"id": "N2-04", "node": 2, "stage": "node2", "from": "ESP2:RX2", "to": "TRX2:CRX", "signal": "CAN_RX_N2 (GPIO16)", "kind": "jumper", "color": "brown", "domain": "3.3 V logic, ESP32 input", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-FW", "E-WROOM", "E-TI"], "verify": "Continuity RX2 pin to CRX pin; NOT to CTX."},
+
+    {"id": "N3-01", "node": 3, "stage": "node3-power", "from": "ESP3:3V3", "to": "RAIL3:3V3+", "signal": "3V3_N3", "kind": "jumper", "color": "red", "domain": "3.3 V (Node 3 only)", "status": "PROVISIONAL", "gates": ["G2", "G14"], "design_evidence": ["E-DOIT"], "verify": "Continuity 3V3 pin to bottom + rail."},
+    {"id": "N3-02", "node": 3, "stage": "node3-power", "from": "ESP3:GND", "to": "RAIL3:GND-", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G2", "G14"], "design_evidence": ["E-DOIT"], "verify": "Continuity GND pin (3V3 side) to bottom - rail."},
+    {"id": "N3-03", "node": 3, "stage": "node3-power", "from": "RAIL3:GND-", "to": "RAIL3:GNDtop", "signal": "GND (rail link, far right end of board B)", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G14"], "design_evidence": [], "verify": "Continuity bottom - rail to top - rail: near 0 Ohm. Never link a - rail to a + rail."},
+    {"id": "N3-04", "node": 3, "stage": "node3-can", "from": "RAIL3:3V3+", "to": "TRX3:3V3", "signal": "3V3_N3", "kind": "jumper", "color": "red", "domain": "3.3 V", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": ["E-TI"], "verify": "Continuity + rail to TRX3 3V3."},
+    {"id": "N3-05", "node": 3, "stage": "node3-can", "from": "RAIL3:GND-", "to": "TRX3:GND", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": ["E-TI"], "verify": "Continuity - rail to TRX3 GND."},
+    {"id": "N3-06", "node": 3, "stage": "node3-can", "from": "ESP3:TX2", "to": "TRX3:CTX", "signal": "CAN_TX_N3 (GPIO17)", "kind": "jumper", "color": "white", "domain": "3.3 V logic, ESP32 output", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-FW", "E-WROOM", "E-ARD", "E-TI"], "verify": "Continuity TX2 to CTX; NOT to CRX."},
+    {"id": "N3-07", "node": 3, "stage": "node3-can", "from": "ESP3:RX2", "to": "TRX3:CRX", "signal": "CAN_RX_N3 (GPIO16)", "kind": "jumper", "color": "brown", "domain": "3.3 V logic, ESP32 input", "status": "PROVISIONAL", "gates": ["G1", "G2", "G4"], "design_evidence": ["E-FW", "E-WROOM", "E-ARD", "E-TI"], "verify": "Continuity RX2 to CRX; NOT to CTX."},
+    {"id": "N3-08", "node": 3, "stage": "bus", "from": "RT2:1", "to": "TRX3:CANH", "signal": "CANH (end B terminator)", "kind": "lead", "color": "component", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G6", "G13"], "design_evidence": ["E-CALC"], "verify": "Fit only if G6 found no onboard terminator on TRX3."},
+    {"id": "N3-09", "node": 3, "stage": "bus", "from": "RT2:2", "to": "TRX3:CANL", "signal": "CANL (end B terminator)", "kind": "lead", "color": "component", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G6", "G13"], "design_evidence": ["E-CALC"], "verify": "RT2 measured 114-126 Ohm before fitting."},
+
+    {"id": "N3-10", "node": 3, "stage": "node3-oled", "from": "RAIL3:3V3+", "to": "OLED:VCC", "signal": "3V3_N3", "kind": "jumper", "color": "red", "domain": "3.3 V (never 5 V)", "status": "PROVISIONAL", "gates": ["G7"], "design_evidence": ["E-ARD"], "verify": "Continuity + rail to the pin PRINTED VCC/VDD (not by position)."},
+    {"id": "N3-11", "node": 3, "stage": "node3-oled", "from": "RAIL3:GND-", "to": "OLED:GND", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G7"], "design_evidence": [], "verify": "Continuity - rail to the pin PRINTED GND."},
+    {"id": "N3-12", "node": 3, "stage": "node3-oled", "from": "ESP3:D21", "to": "OLED:SDA", "signal": "I2C_SDA (GPIO21)", "kind": "jumper", "color": "blue", "domain": "3.3 V logic, open-drain", "status": "PROVISIONAL", "gates": ["G2", "G7"], "design_evidence": ["E-ARD"], "verify": "Continuity D21 to SDA; NOT to SCL."},
+    {"id": "N3-13", "node": 3, "stage": "node3-oled", "from": "ESP3:D22", "to": "OLED:SCL", "signal": "I2C_SCL (GPIO22)", "kind": "jumper", "color": "purple", "domain": "3.3 V logic, open-drain", "status": "PROVISIONAL", "gates": ["G2", "G7"], "design_evidence": ["E-ARD"], "verify": "Continuity D22 to SCL; NOT to SDA."},
+
+    {"id": "N3-14", "node": 3, "stage": "node3-led", "from": "ESP3:D25", "to": "R_G:1", "signal": "LED_GREEN (GPIO25)", "kind": "jumper", "color": "grey", "domain": "3.3 V logic, output", "status": "PROVISIONAL", "gates": ["G2", "G13"], "design_evidence": ["E-ESP32", "E-CALC"], "verify": "Continuity D25 to one end of the green 220 Ohm."},
+    {"id": "N3-15", "node": 3, "stage": "node3-led", "from": "R_G:2", "to": "LED_G:A", "signal": "LED_GREEN via 220", "kind": "lead", "color": "component", "domain": "3.3 V", "status": "PROVISIONAL", "gates": ["G9"], "design_evidence": ["E-CALC"], "verify": "Resistor and anode share one 5-hole strip; nothing else in it."},
+    {"id": "N3-16", "node": 3, "stage": "node3-led", "from": "LED_G:K", "to": "RAIL3:GNDtop", "signal": "GND", "kind": "lead", "color": "component", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G9", "G14"], "design_evidence": [], "verify": "Cathode (short leg, flat side) to top GND rail."},
+    {"id": "N3-17", "node": 3, "stage": "node3-led", "from": "ESP3:D26", "to": "R_Y:1", "signal": "LED_YELLOW (GPIO26)", "kind": "jumper", "color": "grey", "domain": "3.3 V logic, output", "status": "PROVISIONAL", "gates": ["G2", "G13"], "design_evidence": ["E-ESP32", "E-CALC"], "verify": "Continuity D26 to one end of the yellow 220 Ohm."},
+    {"id": "N3-18", "node": 3, "stage": "node3-led", "from": "R_Y:2", "to": "LED_Y:A", "signal": "LED_YELLOW via 220", "kind": "lead", "color": "component", "domain": "3.3 V", "status": "PROVISIONAL", "gates": ["G9"], "design_evidence": ["E-CALC"], "verify": "Resistor and anode share one strip."},
+    {"id": "N3-19", "node": 3, "stage": "node3-led", "from": "LED_Y:K", "to": "RAIL3:GNDtop", "signal": "GND", "kind": "lead", "color": "component", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G9", "G14"], "design_evidence": [], "verify": "Cathode to top GND rail."},
+    {"id": "N3-20", "node": 3, "stage": "node3-led", "from": "ESP3:D27", "to": "R_R:1", "signal": "LED_RED (GPIO27)", "kind": "jumper", "color": "grey", "domain": "3.3 V logic, output", "status": "PROVISIONAL", "gates": ["G2", "G13"], "design_evidence": ["E-ESP32", "E-CALC"], "verify": "Continuity D27 to one end of the red 220 Ohm."},
+    {"id": "N3-21", "node": 3, "stage": "node3-led", "from": "R_R:2", "to": "LED_R:A", "signal": "LED_RED via 220", "kind": "lead", "color": "component", "domain": "3.3 V", "status": "PROVISIONAL", "gates": ["G9"], "design_evidence": ["E-CALC"], "verify": "Resistor and anode share one strip."},
+    {"id": "N3-22", "node": 3, "stage": "node3-led", "from": "LED_R:K", "to": "RAIL3:GNDtop", "signal": "GND", "kind": "lead", "color": "component", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G9", "G14"], "design_evidence": [], "verify": "Cathode to top GND rail."},
+
+    {"id": "N3-23", "node": 3, "stage": "node3-button", "from": "ESP3:D32", "to": "BTN_A:L1", "signal": "BUTTON_A (GPIO32, internal pull-up, active LOW)", "kind": "jumper", "color": "white", "domain": "3.3 V logic, input", "status": "PROVISIONAL", "gates": ["G2", "G8"], "design_evidence": ["E-ESP32"], "verify": "Continuity D32 to leg L1 of button A."},
+    {"id": "N3-24", "node": 3, "stage": "node3-button", "from": "BTN_A:L3", "to": "RAIL3:GNDtop", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G8"], "design_evidence": [], "verify": "L3 is DIAGONAL to L1. D32-to-GND: open released, ~0 Ohm pressed."},
+    {"id": "N3-25", "node": 3, "stage": "node3-button", "from": "ESP3:D33", "to": "BTN_B:L1", "signal": "BUTTON_B (GPIO33, internal pull-up, active LOW)", "kind": "jumper", "color": "white", "domain": "3.3 V logic, input", "status": "PROVISIONAL", "gates": ["G2", "G8"], "design_evidence": ["E-ESP32"], "verify": "Continuity D33 to leg L1 of button B."},
+    {"id": "N3-26", "node": 3, "stage": "node3-button", "from": "BTN_B:L3", "to": "RAIL3:GNDtop", "signal": "GND", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G8"], "design_evidence": [], "verify": "D33-to-GND: open released, ~0 Ohm pressed."},
+
+    {"id": "N3-27", "node": 3, "stage": "node3-buzzer", "from": "ESP3:D13", "to": "R_B:1", "signal": "BUZZER_DRIVE (GPIO13)", "kind": "jumper", "color": "grey", "domain": "3.3 V logic, output", "status": "PROVISIONAL", "gates": ["G2", "G13"], "design_evidence": ["E-ESP32", "E-CALC"], "verify": "Continuity D13 (3rd pin from USB, VIN side) to one end of the 1 kOhm. The 4th pin, D12, is a strapping pin: make sure it stays EMPTY. D13 has NO path to the buzzer except through Q1."},
+    {"id": "N3-28", "node": 3, "stage": "node3-buzzer", "from": "R_B:2", "to": "Q1:B", "signal": "Q1 base via 1 kOhm", "kind": "lead", "color": "component", "domain": "about 0.7 V", "status": "BLOCKED", "gates": ["G10"], "design_evidence": ["E-CALC"], "verify": "Blocked until Q1 part number and its E/B/C order are recorded."},
+    {"id": "N3-29", "node": 3, "stage": "node3-buzzer", "from": "R_PD:1", "to": "Q1:B", "signal": "base pull-down (boot-quiet)", "kind": "lead", "color": "component", "domain": "0 V", "status": "BLOCKED", "gates": ["G10"], "design_evidence": ["E-CALC"], "verify": "Blocked until Q1 pinout is recorded."},
+    {"id": "N3-30", "node": 3, "stage": "node3-buzzer", "from": "R_PD:2", "to": "RAIL3:GNDtop", "signal": "GND", "kind": "lead", "color": "component", "domain": "0 V", "status": "BLOCKED", "gates": ["G10"], "design_evidence": [], "verify": "Blocked until Q1 pinout is recorded."},
+    {"id": "N3-31", "node": 3, "stage": "node3-buzzer", "from": "Q1:E", "to": "RAIL3:GNDtop", "signal": "GND (emitter)", "kind": "jumper", "color": "black", "domain": "0 V", "status": "BLOCKED", "gates": ["G10"], "design_evidence": [], "verify": "Blocked until Q1 pinout is recorded."},
+    {"id": "N3-32", "node": 3, "stage": "node3-buzzer", "from": "Q1:C", "to": "BZ1:-", "signal": "BUZZER_LOW (collector)", "kind": "lead", "color": "component", "domain": "0-5 V switched", "status": "BLOCKED", "gates": ["G10", "G11"], "design_evidence": ["E-CALC"], "verify": "Blocked until Q1 pinout and buzzer polarity are recorded."},
+    {"id": "N3-33", "node": 3, "stage": "node3-buzzer", "from": "D1:A", "to": "BZ1:-", "signal": "flyback diode anode", "kind": "lead", "color": "component", "domain": "0-5 V", "status": "PROVISIONAL", "gates": ["G11"], "design_evidence": [], "verify": "Only if G11 says electromagnetic. Band (cathode) goes to the + side."},
+    {"id": "N3-34", "node": 3, "stage": "node3-buzzer", "from": "D1:K", "to": "BZ1:+", "signal": "flyback diode cathode", "kind": "lead", "color": "component", "domain": "5 V", "status": "PROVISIONAL", "gates": ["G11"], "design_evidence": [], "verify": "Band toward buzzer +."},
+    {"id": "N3-35", "node": 3, "stage": "powerup-last", "from": "ESP3:VIN", "to": "BZ1:+", "signal": "5V_USB_N3 (buzzer supply)", "kind": "jumper", "color": "orange", "domain": "5 V from Node 3 USB (never to any 3V3 point)", "status": "PROVISIONAL", "gates": ["G11", "G12"], "design_evidence": ["E-DOIT"], "verify": "Install LAST, with power off, after G12. No continuity from this wire to any 3V3 pin or rail."},
+
+    {"id": "B-01", "node": 0, "stage": "bus", "from": "TRX1:CANH", "to": "TRX2:CANH", "signal": "CANH trunk, segment 1", "kind": "jumper", "color": "yellow", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": ["E-TI"], "verify": "Continuity TRX1 CANH to TRX2 CANH; no continuity CANH to CANL other than through terminators."},
+    {"id": "B-02", "node": 0, "stage": "bus", "from": "TRX1:CANL", "to": "TRX2:CANL", "signal": "CANL trunk, segment 1", "kind": "jumper", "color": "green", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": ["E-TI"], "verify": "Twist with B-01. Continuity TRX1 CANL to TRX2 CANL."},
+    {"id": "B-03", "node": 0, "stage": "bus", "from": "TRX1:GND", "to": "TRX2:GND", "signal": "GND reference, segment 1", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": [], "verify": "Continuity Node 1 GND to Node 2 GND."},
+    {"id": "B-04", "node": 0, "stage": "bus", "from": "TRX2:CANH", "to": "TRX3:CANH", "signal": "CANH trunk, segment 2 (board A to B)", "kind": "jumper", "color": "yellow", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": ["E-TI"], "verify": "Continuity TRX2 CANH to TRX3 CANH."},
+    {"id": "B-05", "node": 0, "stage": "bus", "from": "TRX2:CANL", "to": "TRX3:CANL", "signal": "CANL trunk, segment 2 (board A to B)", "kind": "jumper", "color": "green", "domain": "CAN bus", "status": "PROVISIONAL", "gates": ["G4"], "design_evidence": ["E-TI"], "verify": "Twist with B-04. Continuity TRX2 CANL to TRX3 CANL."},
+    {"id": "B-06", "node": 0, "stage": "bus", "from": "TRX2:GND", "to": "RAIL3:GND-", "signal": "GND reference, segment 2", "kind": "jumper", "color": "black", "domain": "0 V", "status": "PROVISIONAL", "gates": ["G4", "G14"], "design_evidence": [], "verify": "Continuity Node 2 GND to Node 3 GND rail."}
+  ],
+
+  "conditional_connections": [
+    {"id": "C-RS1", "applies": "Only if TRX1 exposes a pin labelled RS, S or STB", "from": "TRX1:RS", "to": "TRX1:GND", "signal": "Rs = high-speed mode", "status": "PROVISIONAL", "gates": ["G4", "G5"], "design_evidence": ["E-TI"]},
+    {"id": "C-RS2", "applies": "Only if TRX2 exposes a pin labelled RS, S or STB", "from": "TRX2:RS", "to": "TRX2:GND", "signal": "Rs = high-speed mode", "status": "PROVISIONAL", "gates": ["G4", "G5"], "design_evidence": ["E-TI"]},
+    {"id": "C-RS3", "applies": "Only if TRX3 exposes a pin labelled RS, S or STB", "from": "TRX3:RS", "to": "RAIL3:GND-", "signal": "Rs = high-speed mode", "status": "PROVISIONAL", "gates": ["G4", "G5"], "design_evidence": ["E-TI"]},
+    {"id": "C-VREF", "applies": "Any module exposing Vref", "from": "TRXn:Vref", "to": "(no connection)", "signal": "leave unconnected", "status": "CONFIRMED", "gates": [], "design_evidence": ["E-TI"]},
+    {"id": "C-T2", "applies": "If G6 finds an onboard 120 Ohm on TRX2 (middle node)", "from": "TRX2 onboard terminator", "to": "(remove / open jumper)", "signal": "prevents a third terminator", "status": "BLOCKED", "gates": ["G6"], "design_evidence": ["E-CALC"]}
+  ],
+
+  "firmware_bindings": [
+    {"file": "firmware/node1/include/node1_hw_config.h", "macro": "NODE1_CAN_TX_GPIO", "ledger": "N1-03", "gpio": 17},
+    {"file": "firmware/node1/include/node1_hw_config.h", "macro": "NODE1_CAN_RX_GPIO", "ledger": "N1-04", "gpio": 16},
+    {"file": "firmware/node2/include/node2_hw_config.h", "macro": "NODE2_CAN_TX_GPIO", "ledger": "N2-03", "gpio": 17},
+    {"file": "firmware/node2/include/node2_hw_config.h", "macro": "NODE2_CAN_RX_GPIO", "ledger": "N2-04", "gpio": 16},
+    {"file": "firmware/monitor/include/monitor_hw_config.h", "macro": "MONITOR_CAN_TX_GPIO", "ledger": "N3-06", "gpio": 17},
+    {"file": "firmware/monitor/include/monitor_hw_config.h", "macro": "MONITOR_CAN_RX_GPIO", "ledger": "N3-07", "gpio": 16},
+    {"file": "sketch_node2_test/sketch_node2_test.ino", "macro": "CAN_TX", "ledger": "N2-03", "gpio": 17},
+    {"file": "sketch_node2_test/sketch_node2_test.ino", "macro": "CAN_RX", "ledger": "N2-04", "gpio": 16}
+  ],
+  "firmware_gaps": [
+    "No firmware drives the OLED, LEDs, buttons or buzzer (GPIO21/22/25/26/27/32/33/18 are not referenced anywhere in firmware/).",
+    "No motor (RPM/temperature) or battery (voltage/current/SoC) simulation and no fault injection exist in the current node1/node2 targets; they only start CAN with TX disabled.",
+    "Only sketch_node2_test (PlatformIO env node2/legacy_sketch) transmits: fixed test frames 0x201, 0x202, 0x203 every 1 s and heartbeat 0x210 every 500 ms, UNVERIFIED units.",
+    "firmware/node3 refuses to start CAN by design. Node 3 hardware (the CANScope monitor) must run the firmware/monitor target, which is listen-only on GPIO17/16 at 500 kbit/s."
+  ],
+  "bus": {
+    "order": ["TRX1 (end A, RT1)", "TRX2 (middle, no terminator)", "TRX3 (end B, RT2)"],
+    "bitrate": 500000,
+    "bitrate_status": "Firmware setting (E-FW); used consistently by node1, node2 legacy sketch and monitor. Not a production-bus value.",
+    "expected_unpowered_resistance_ohm": 60
+  }
+}
