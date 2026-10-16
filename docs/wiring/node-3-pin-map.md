@@ -2,6 +2,8 @@
 
 Source of truth for Node 3 wiring. Firmware counterpart: `firmware/node3/include/node3_hw_config.h`.
 
+> **2026-10-16:** the physical build now uses the canonical ledger `docs/wiring/pin_ledger.json` (Rev 2.0-draft), which proposes Node 3 = CANScope monitor hardware with CAN TX GPIO17 / RX GPIO16, OLED SDA 21 / SCL 22, LEDs 25/26/27, buttons 32/33, buzzer drive 13. Those are **PROVISIONAL** (bench gates pending), not verified. See `validation/correction_register.md` C01 and C06.
+
 **Every row is UNVERIFIED.** No Node 3 schematic, component list, photo or measurement is available yet. Do not power Node 3 peripherals based on this table until the rows have evidence.
 
 | ESP32 pin / signal | Connected device / pin | Signal purpose | Voltage | Direction (ESP32 view) | Evidence | Verification state |
@@ -41,3 +43,4 @@ The banner will still say `[UNVERIFIED]`. Log the assumption, the wiring and the
 ## Change log
 
 - 2026-10-13: table created from the project brief. All rows UNVERIFIED.
+- 2026-10-16: pointer to the Rev 2 ledger added; values there are PROVISIONAL. No row here moved to Verified.
