@@ -7,6 +7,7 @@ Canonical task file: `TASK.md` (no `task.md` existed; only this file is used).
 - Phase: phase 1 (repository foundation) **software-complete** as of 2026-10-13. Next phase: Stage 0/1 hardware inventory and evidence.
 - Overall state: all firmware targets build, and the host and dashboard tests pass. **No hardware or protocol value is verified.** Node 3 is blocked on its pin map and role.
 - Git: local repo on branch `main`, tracking `origin` = https://github.com/Naveen-kumar14/CanScope.git (see the 2026-10-13 Git entry).
+- 2026-10-16: physical build documentation **Rev 2.0-draft (NOT FINAL)**: canonical wiring ledger, corrected manual PDF, build video. Q1 buzzer transistor pinout BLOCKED; all other wires PROVISIONAL pending bench gates G1-G14. See the 2026-10-16 entry.
 
 ---
 
@@ -190,3 +191,58 @@ The user asked for a repository under the GitHub account `Naveen-kumar14`, and t
 ### Next concrete action
 
 Unchanged: hardware inventory (ESP32 modules, transceiver part number, Node 3 component list or schematic), then bring-up stages 1–2. From now on, work is committed in small commits and pushed to `origin/main`.
+
+---
+
+## 2026-10-16 — Physical build: manual audit, Rev 2 manual, build video
+
+### Summary
+
+Audited `CANScope_Physical_Build_Manual.pdf` (Rev 1.0) against the repository and manufacturer datasheets. Created one canonical wiring ledger, and generated from it a corrected manual (Rev 2.0-draft), wiring diagrams, a 60-minute narrated build video, and validation records. **No hardware was inspected, measured or powered.** The documents are labelled NOT FINAL.
+
+### Work completed
+
+- `docs/wiring/pin_ledger.json`: canonical wiring contract with 59 connections, 5 conditional rows and 14 bench gates (G1-G14). Statuses: 54 PROVISIONAL, 5 BLOCKED (Q1 transistor pinout), 0 CONFIRMED.
+- `tools/hwdocs/`: ledger loader and safety validator, diagram renderer, PDF builder, cross-checker.
+- `docs/wiring/diagrams/*.png` (9 sheets) and `docs/CANScope_Physical_Build_Manual_Rev2.pdf` (23 pages, sections 0-19).
+- `video/source/` (storyboard and renderer), `video/CANScope_Physical_Build_Demo.mp4` (59:57, 1080p30, chapters), `.srt`, `storyboard.md`, `narration.md`.
+- `validation/correction_register.md` (27 entries), `validation/wire_coverage_checklist.md` (generated), `validation/final_review.md`.
+
+### Key decisions (PROVISIONAL until the bench gates pass)
+
+- Node 3 CAN TX/RX = GPIO17/16, the same as Nodes 1/2 and the `monitor` firmware. The brief's 22/21 collided with the Arduino-ESP32 default I2C SDA 21 / SCL 22 (`pins_arduino.h`).
+- Node 3 peripherals: OLED SDA 21 / SCL 22; LEDs 25/26/27, each with its own 220 Ohm; buttons 32/33 (internal pull-up, diagonal legs); buzzer drive GPIO13 -> 1k -> NPN low side, 10k base pull-down, buzzer + from Node 3 VIN. No external 5 V.
+- Bus order: end A - N1 - N2 - N3 - end B. RT1 at TRX1, RT2 at TRX3, subject to the onboard-terminator check G6.
+- Node 3 hardware runs `firmware/monitor` for bring-up (`firmware/node3` refuses to start CAN by design).
+- Flash each bare board before wiring.
+
+### Evidence used
+
+TI SN65HVD23x datasheet SLOS346O; Espressif ESP32 datasheet; Espressif ESP32-WROOM-32 datasheet v3.8 (downloaded and text-extracted); local `framework-arduinoespressif32/variants/esp32/pins_arduino.h`; repository firmware sources. A grep of `firmware/` found no use of the peripheral GPIOs.
+
+### Commands and results
+
+| Command | Result |
+|---|---|
+| `python tools/hwdocs/ledger.py` | 8/8 firmware CAN GPIO bindings agree with the ledger; no structural problems |
+| Ledger negative tests (CANH->GPIO, GPIO->buzzer, joined 3V3, VIN->3V3, strapping pin, third terminator) | Each was rejected as expected |
+| `python tools/hwdocs/validate.py` | **17/17 PASS** (diagram <-> ledger <-> video <-> firmware; gates before use; power off on every wiring step) |
+| `python tools/hwdocs/build_manual.py` | PDF written; all 23 pages rasterized and visually reviewed |
+| `python video/source/render_video.py` | MP4 written: 59:57, H.264 1920x1080 30 fps + AAC, 10 chapters; audio mean -20.8 dB; frames extracted from the MP4 spot-checked. The full 60 minutes was not watched end to end |
+| Environment | Python venv in the session scratchpad (pillow 12.3.0, reportlab 5.0.1, imageio-ffmpeg 0.6.0, pypdf, pypdfium2); Windows SAPI voice Microsoft Zira |
+
+Two earlier full renders were stopped on purpose, to pick up diagram text fixes and add chapters. Only the final render is kept.
+
+### Hardware or protocol values newly verified
+
+None. Datasheet facts were used for design; no physical value is verified.
+
+### Blockers
+
+- Q1 part number and its E/B/C order (gate G10): blocks N3-28 to N3-32 and, through them, N3-35.
+- If Node 2's transceiver has an onboard 120 Ohm (gate G6), row C-T2 is blocked until it is removed.
+- No firmware exists for the OLED, LEDs, buttons, buzzer, motor/battery simulation or fault injection.
+
+### Next concrete action
+
+The user photographs each ESP32 shield and both headers (G1, G2) and each transceiver front and back (G4), measures the onboard CANH-CANL resistance of each bare module (G6), and reads the transistor marking (G10). Then update the ledger statuses and run bench stages per manual sections 15-17. The MP4 is gitignored (94 MB); decide whether to publish it via Git LFS or a GitHub release.
