@@ -23,3 +23,8 @@ secrets.h
 # Captures: only commit captures that are explicitly approved and non-private.
 # Put private or vehicle captures in captures/private/ (ignored).
 captures/private/
+
+# Rendered video (large build artifact; regenerate with video/source/render_video.py)
+video/*.mp4
+.venv-docs/
+__pycache__/
