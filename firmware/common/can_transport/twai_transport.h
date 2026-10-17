@@ -24,6 +24,8 @@ class TwaiTransport : public CanTransport {
   int last_driver_error() const { return last_error_; }
   // Alert bits read during the last poll_status() call.
   uint32_t last_alerts() const { return last_alerts_; }
+  bool recovery_pending() const { return recovery_pending_; }
+  uint32_t recoveries() const { return recoveries_; }
 
  private:
   CanConfig cfg_;
@@ -31,6 +33,8 @@ class TwaiTransport : public CanTransport {
   bool installed_;
   int last_error_;
   uint32_t last_alerts_;
+  bool recovery_pending_;
+  uint32_t recoveries_;
 };
 
 }  // namespace canscope

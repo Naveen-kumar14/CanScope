@@ -47,7 +47,12 @@ ControllerState to_controller_state(twai_state_t state) {
 }  // namespace
 
 TwaiTransport::TwaiTransport()
-    : status_(empty_bus_status()), installed_(false), last_error_(0), last_alerts_(0) {
+    : status_(empty_bus_status()),
+      installed_(false),
+      last_error_(0),
+      last_alerts_(0),
+      recovery_pending_(false),
+      recoveries_(0) {
   memset(&cfg_, 0, sizeof(cfg_));
 }
 
@@ -55,6 +60,7 @@ TransportResult TwaiTransport::begin(const CanConfig& cfg) {
   cfg_ = cfg;
   status_ = empty_bus_status();
   last_error_ = 0;
+  recovery_pending_ = false;
 
   if (!validate_config(cfg).ok()) return TransportResult::ConfigInvalid;
 
@@ -65,6 +71,7 @@ TransportResult TwaiTransport::begin(const CanConfig& cfg) {
       static_cast<gpio_num_t>(cfg.tx_gpio), static_cast<gpio_num_t>(cfg.rx_gpio),
       to_twai_mode(cfg.mode));
   g_config.rx_queue_len = 32;
+  g_config.tx_queue_len = 8;
   g_config.alerts_enabled = TWAI_ALERT_BUS_OFF | TWAI_ALERT_BUS_RECOVERED |
                             TWAI_ALERT_ERR_PASS | TWAI_ALERT_ERR_ACTIVE |
                             TWAI_ALERT_ABOVE_ERR_WARN | TWAI_ALERT_BUS_ERROR |
@@ -166,6 +173,18 @@ BusStatus TwaiTransport::poll_status() {
 
   twai_status_info_t info;
   if (twai_get_status_info(&info) == ESP_OK) {
+    // An operator-requested recovery has completed (128 x 11 recessive bits
+    // seen): the controller is STOPPED and must be started again.
+    if (recovery_pending_ && info.state == TWAI_STATE_STOPPED) {
+      const esp_err_t err = twai_start();
+      recovery_pending_ = false;
+      if (err == ESP_OK) {
+        ++recoveries_;
+        twai_get_status_info(&info);
+      } else {
+        last_error_ = err;
+      }
+    }
     status_.driver_running = info.state == TWAI_STATE_RUNNING;
     status_.tx_error_counter = info.tx_error_counter;
     status_.rx_error_counter = info.rx_error_counter;
@@ -180,13 +199,16 @@ BusStatus TwaiTransport::poll_status() {
 
 TransportResult TwaiTransport::request_bus_off_recovery() {
   if (!installed_) return TransportResult::NotStarted;
+  // Only valid in bus-off; the driver refuses it in any other state.
   const esp_err_t err = twai_initiate_recovery();
   if (err != ESP_OK) {
     last_error_ = err;
     return TransportResult::DriverError;
   }
-  // After recovery completes the controller is STOPPED; twai_start() must be
-  // called again by an explicit operator action (policy: TODO, see TASK.md).
+  // Recovery is only ever started by an explicit operator action (serial
+  // "recover" or Node 3 button B long press), never automatically.
+  // poll_status() restarts the controller once recovery has completed.
+  recovery_pending_ = true;
   return TransportResult::Ok;
 }
 
