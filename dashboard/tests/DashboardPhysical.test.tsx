@@ -107,6 +107,40 @@ describe('DashboardPage in physical mode', () => {
     expect(screen.getByTestId('state-error')).toHaveTextContent('port busy or unavailable');
   });
 
+  it('forgets unidentified port cards individually while the three nodes stay connected', async () => {
+    const t = await setup();
+    const nodes = [new FakePort(), new FakePort(), new FakePort()];
+    const strays = [new FakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 }), new FakePort()];
+    const busy = new Error('Failed to open serial port.');
+    busy.name = 'NetworkError';
+    strays[1].openError = busy;
+    for (const p of [...nodes, ...strays]) await t.add(p);
+    await t.emit(nodes[0], LINES.helloNode1);
+    await t.emit(nodes[1], LINES.helloNode2);
+    await t.emit(nodes[2], LINES.helloMonitor);
+
+    expect(screen.getAllByText('Unidentified port')).toHaveLength(2);
+    // Identified node cards never offer Forget.
+    const ids = t.source.getSnapshot().links.map((l) => l.id);
+    for (const id of ids.slice(0, 3)) expect(screen.queryByTestId(`forget-${id}`)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`forget-${ids[3]}`));
+      await settle();
+    });
+    expect(screen.queryByTestId(`link-${ids[3]}`)).toBeNull();
+    expect(strays[0].readable).toBeNull();
+    expect(screen.getAllByText('Unidentified port')).toHaveLength(1);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`forget-${ids[4]}`));
+      await settle();
+    });
+    expect(screen.queryByText('Unidentified port')).toBeNull();
+    for (const n of ['node1', 'node2', 'monitor']) expect(screen.getByTestId(`expected-${n}`)).toHaveTextContent('on ');
+    expect(screen.getByTestId('send-node1-rpm')).toBeEnabled();
+  });
+
   it('reports the missing Web Serial API instead of falling back to mock data', () => {
     const source = new PhysicalSource(null);
     render(<DashboardPage source={source} physical={source} flushMs={0} />);

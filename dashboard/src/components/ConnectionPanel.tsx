@@ -11,6 +11,7 @@ interface Props {
   onAddPort: () => Promise<string | null>;
   onOpen: (id: string) => void;
   onClose: (id: string) => void;
+  onForget: (id: string) => void;
   onOpenAll: () => void;
 }
 
@@ -27,7 +28,7 @@ const EXPECTED = ['node1', 'node2', 'monitor'] as const;
 /** Device lines arrive at least once per second; quieter than this is suspicious. */
 const LINK_QUIET_MS = 3000;
 
-export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, onOpenAll }: Props) {
+export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, onForget, onOpenAll }: Props) {
   const [pickError, setPickError] = useState<string | null>(null);
 
   if (!snapshot.supported) {
@@ -86,7 +87,7 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
       ) : (
         <div className="link-grid">
           {snapshot.links.map((l) => (
-            <LinkCard key={l.id} link={l} nowMs={nowMs} onOpen={onOpen} onClose={onClose} />
+            <LinkCard key={l.id} link={l} nowMs={nowMs} onOpen={onOpen} onClose={onClose} onForget={onForget} />
           ))}
         </div>
       )}
@@ -94,7 +95,15 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
   );
 }
 
-function LinkCard({ link, nowMs, onOpen, onClose }: { link: LinkInfo; nowMs: number; onOpen: (id: string) => void; onClose: (id: string) => void }) {
+interface LinkCardProps {
+  link: LinkInfo;
+  nowMs: number;
+  onOpen: (id: string) => void;
+  onClose: (id: string) => void;
+  onForget: (id: string) => void;
+}
+
+function LinkCard({ link, nowMs, onOpen, onClose, onForget }: LinkCardProps) {
   const quiet = link.state === 'open' && (link.lastLineAtMs === null || nowMs - link.lastLineAtMs > LINK_QUIET_MS);
   return (
     <article className="link-card" data-testid={`link-${link.id}`}>
@@ -141,6 +150,16 @@ function LinkCard({ link, nowMs, onOpen, onClose }: { link: LinkInfo; nowMs: num
         ) : (
           <button type="button" onClick={() => onOpen(link.id)} data-testid={`open-${link.id}`}>
             {link.state === 'lost' || link.state === 'error' ? 'Reconnect' : 'Connect'}
+          </button>
+        )}
+        {link.node === null && (
+          <button
+            type="button"
+            onClick={() => onForget(link.id)}
+            data-testid={`forget-${link.id}`}
+            title="Close this port and remove it from the dashboard; add it again with Add serial port…"
+          >
+            Forget port
           </button>
         )}
       </div>

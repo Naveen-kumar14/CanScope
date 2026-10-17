@@ -19,6 +19,8 @@ export interface SerialPortLike {
   readonly readable: ReadableStream<Uint8Array> | null;
   readonly writable: WritableStream<Uint8Array> | null;
   getInfo(): SerialPortInfoLike;
+  /** Revokes the page's permission for the port (Chrome 103+; optional). */
+  forget?(): Promise<void>;
 }
 
 export interface SerialApiLike {
@@ -80,14 +82,23 @@ export class SerialLink {
 
   async open(baudRate: number): Promise<boolean> {
     if (this.state === 'open' || this.state === 'opening') return this.state === 'open';
+    this.closingByUser = false;
     this.setState('opening');
     try {
       await this.port.open({ baudRate, bufferSize: 16384 });
     } catch (e) {
-      this.setState('error', explainOpenError(e));
+      if (!this.closingByUser) this.setState('error', explainOpenError(e));
       return false;
     }
-    this.closingByUser = false;
+    if (this.closingByUser) {
+      // close() was called while the port was still opening: release it again.
+      try {
+        await this.port.close();
+      } catch {
+        /* already gone */
+      }
+      return false;
+    }
     this.splitter.reset();
     this.setState('open');
     void this.readLoop();

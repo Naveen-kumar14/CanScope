@@ -69,6 +69,7 @@ export function DashboardPage({ source, physical, headerExtras, flushMs = 100 }:
             onAddPort={() => physical.addPort()}
             onOpen={(id) => void physical.openLink(id)}
             onClose={(id) => void physical.closeLink(id)}
+            onForget={(id) => void physical.forgetPort(id)}
             onOpenAll={() => void physical.openAllKnown()}
           />
         )}

@@ -2,7 +2,8 @@
 // Physical-mode serial integration with an in-memory Web Serial double:
 // discovery/selection, identification, malformed/oversized input, commands
 // with ack/reject/unsupported/timeout, unplug + automatic reopen, port
-// contention, duplicate fault events, identity conflicts and device restarts.
+// contention, duplicate fault events, identity conflicts, device restarts and
+// forgetting unidentified ports.
 import { describe, expect, it } from 'vitest';
 
 import type { DataSourceHandlers } from '../src/lib/data-source';
@@ -265,6 +266,135 @@ describe('PhysicalSource', () => {
     expect(snap.commands.find((c) => c.id === r.id)).toMatchObject({
       state: 'connection_lost',
       detail: 'device restarted before acknowledging',
+    });
+  });
+
+  describe('forgetPort', () => {
+    async function withNodes() {
+      const t = setup();
+      const n1 = new FakePort();
+      const n2 = new FakePort();
+      const mon = new FakePort();
+      for (const p of [n1, n2, mon]) await t.add(p);
+      n1.emit(`${LINES.helloNode1}\n`);
+      n2.emit(`${LINES.helloNode2}\n`);
+      mon.emit(`${LINES.helloMonitor}\n`);
+      await settle();
+      return { ...t, n1, n2, mon };
+    }
+
+    it('closes an open unidentified port and removes it without touching identified nodes', async () => {
+      const t = await withNodes();
+      const stray = new FakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 });
+      await t.add(stray);
+      const id = t.source.getSnapshot().links.find((l) => l.node === null)!.id;
+      expect(t.source.getSnapshot().links.find((l) => l.id === id)!.state).toBe('open');
+
+      let published = 0;
+      t.source.subscribe(() => published++);
+      const done = t.source.forgetPort(id);
+      // Removed from the snapshot before the close finishes.
+      expect(published).toBeGreaterThan(0);
+      expect(t.source.getSnapshot().links.map((l) => l.id)).not.toContain(id);
+      expect(await done).toBe(true);
+      await settle();
+
+      expect(stray.closed).toBeGreaterThan(0);
+      expect(stray.forgotten).toBe(1);
+      expect(stray.readable).toBeNull();
+      const snap = t.source.getSnapshot();
+      expect(snap.links.map((l) => l.node)).toEqual(['node1', 'node2', 'monitor']);
+      expect(snap.links.every((l) => l.state === 'open')).toBe(true);
+      for (const n of ['node1', 'node2', 'monitor'] as const) expect(t.source.linkFor(n)).not.toBeNull();
+      const r = await t.source.sendCommand('node2', 'status');
+      expect(t.n2.lines()).toEqual([`@${r.id} status`]);
+      expect(t.connection.at(-1)).toMatch(/^connected: 3 port/);
+    });
+
+    it('refuses to forget an identified node port', async () => {
+      const t = await withNodes();
+      const n1 = t.source.getSnapshot().links.find((l) => l.node === 'node1')!;
+      expect(await t.source.forgetPort(n1.id)).toBe(false);
+      expect(await t.source.forgetPort('no-such-port')).toBe(false);
+      expect(t.source.getSnapshot().links).toHaveLength(3);
+      expect(t.n1.closed).toBe(0);
+      expect(t.source.linkFor('node1')?.id).toBe(n1.id);
+    });
+
+    it('forgets a port in the error state and clears the connection error', async () => {
+      const t = setup();
+      const port = new FakePort();
+      const busy = new Error('Failed to open serial port.');
+      busy.name = 'NetworkError';
+      port.openError = busy;
+      await t.add(port);
+      const link = t.source.getSnapshot().links[0];
+      expect(link.state).toBe('error');
+      expect(await t.source.forgetPort(link.id)).toBe(true);
+      expect(t.source.getSnapshot().links).toEqual([]);
+      expect(t.connection.at(-1)).toMatch(/^idle/);
+    });
+
+    it('forgets closed and lost ports', async () => {
+      const closed = new FakePort();
+      const t = setup({ granted: [closed] });
+      await settle();
+      const lost = new FakePort();
+      await t.add(lost);
+      lost.unplug();
+      t.api.fire('disconnect', lost);
+      await settle();
+      const [a, b] = t.source.getSnapshot().links;
+      expect([a.state, b.state]).toEqual(['closed', 'lost']);
+      expect(await t.source.forgetPort(a.id)).toBe(true);
+      expect(await t.source.forgetPort(b.id)).toBe(true);
+      expect(t.source.getSnapshot().links).toEqual([]);
+      expect(closed.opened).toBe(0);
+    });
+
+    it('releases a port that finishes opening after it was forgotten', async () => {
+      const t = setup();
+      const port = new FakePort();
+      let release!: () => void;
+      port.openGate = new Promise<void>((r) => (release = r));
+      t.api.nextPick = port;
+      const adding = t.source.addPort();
+      await settle();
+      const id = t.source.getSnapshot().links[0].id;
+      expect(t.source.getSnapshot().links[0].state).toBe('opening');
+
+      await t.source.forgetPort(id);
+      expect(t.source.getSnapshot().links).toEqual([]);
+      release();
+      await adding;
+      await settle();
+      expect(port.opened).toBe(1);
+      expect(port.readable).toBeNull(); // closed again right after opening
+      expect(t.source.getSnapshot().links).toEqual([]);
+      port.emit(`${LINES.helloNode1}\n`);
+      await settle();
+      expect(t.events).toEqual([]);
+    });
+
+    it('does not re-list a forgotten port until the user picks it again', async () => {
+      const port = new FakePort();
+      const t = setup({ granted: [port] });
+      await settle();
+      const id = t.source.getSnapshot().links[0].id;
+      await t.source.forgetPort(id);
+
+      // The fake still grants it, as a browser without forget() would.
+      t.api.fire('connect', port);
+      t.api.fire('connect', { target: null } as unknown as FakePort); // triggers getPorts()
+      await settle();
+      expect(t.source.getSnapshot().links).toEqual([]);
+      expect(port.opened).toBe(0);
+
+      expect(await t.add(port)).toBeNull();
+      const again = t.source.getSnapshot().links;
+      expect(again).toHaveLength(1);
+      expect(again[0].id).not.toBe(id);
+      expect(again[0].state).toBe('open');
     });
   });
 });

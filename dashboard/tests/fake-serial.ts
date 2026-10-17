@@ -10,6 +10,10 @@ export class FakePort implements SerialPortLike {
   written: string[] = [];
   opened = 0;
   openError: Error | null = null;
+  /** While set, open() waits for it (a port stuck in the "opening" state). */
+  openGate: Promise<void> | null = null;
+  closed = 0;
+  forgotten = 0;
   private controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder();
@@ -17,6 +21,7 @@ export class FakePort implements SerialPortLike {
   constructor(private readonly info = { usbVendorId: 0x10c4, usbProductId: 0xea60 }) {}
 
   async open(): Promise<void> {
+    if (this.openGate) await this.openGate;
     if (this.openError) throw this.openError;
     if (this.readable) {
       const e = new Error('The port is already open.');
@@ -37,9 +42,16 @@ export class FakePort implements SerialPortLike {
   }
 
   async close(): Promise<void> {
+    this.closed += 1;
     this.readable = null;
     this.writable = null;
     this.controller = null;
+  }
+
+  /** Counts calls only: getPorts() keeps listing it, like a browser without forget(). */
+  async forget(): Promise<void> {
+    this.forgotten += 1;
+    await this.close();
   }
 
   getInfo() {

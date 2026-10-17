@@ -10,6 +10,7 @@
 //   node and track them until an ack, a timeout or a link loss
 // - drop duplicate fault events (bootId + eventId)
 // - reopen a port that was unplugged while the user wanted it open
+// - forget unidentified ports on request and never re-list them on their own
 
 import type { CanDataSource, ConnectionState, DataSourceHandlers } from '../data-source';
 import { SERIAL } from '../protocol-spec.generated';
@@ -81,6 +82,8 @@ export class PhysicalSource implements CanDataSource {
   private readonly tracker: CommandTracker;
   private handlers: DataSourceHandlers | null = null;
   private entries: LinkEntry[] = [];
+  /** Ports the user forgot; only an explicit pick in addPort() brings one back. */
+  private forgotten = new WeakSet<SerialPortLike>();
   private nextLinkId = 1;
   private timer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<() => void>();
@@ -158,6 +161,7 @@ export class PhysicalSource implements CanDataSource {
     } catch (e) {
       return explainOpenError(e);
     }
+    this.forgotten.delete(port);
     const entry = this.entryForPort(port) ?? this.addEntry(port);
     await this.openLink(entry.info.id);
     return null;
@@ -177,6 +181,30 @@ export class PhysicalSource implements CanDataSource {
     if (!e) return;
     e.info.wantOpen = false;
     await e.link.close();
+  }
+
+  /**
+   * Removes an unidentified port: drops it from the snapshot at once, closes
+   * it (also while it is still opening) and revokes the page's permission for
+   * it where the browser supports that. Ports identified as a CANScope node
+   * are never forgotten here.
+   */
+  async forgetPort(id: string): Promise<boolean> {
+    const e = this.entries.find((x) => x.info.id === id);
+    if (!e || e.info.node !== null) return false;
+    e.info.wantOpen = false;
+    this.entries = this.entries.filter((x) => x !== e);
+    this.forgotten.add(e.port);
+    this.updateConflicts();
+    this.updateConnection();
+    this.publish();
+    await e.link.close();
+    try {
+      await e.port.forget?.();
+    } catch {
+      /* permission stays granted; the in-memory guard still applies */
+    }
+    return true;
   }
 
   async openAllKnown(): Promise<void> {
@@ -228,7 +256,7 @@ export class PhysicalSource implements CanDataSource {
     if (!this.api) return;
     try {
       const ports = await this.api.getPorts();
-      for (const p of ports) if (!this.entryForPort(p)) this.addEntry(p);
+      for (const p of ports) if (!this.forgotten.has(p) && !this.entryForPort(p)) this.addEntry(p);
       this.publish();
     } catch {
       /* permission state unavailable: the user can still add a port */
@@ -241,6 +269,7 @@ export class PhysicalSource implements CanDataSource {
       void this.refreshGrantedPorts();
       return;
     }
+    if (this.forgotten.has(port)) return;
     const entry = this.entryForPort(port) ?? this.addEntry(port);
     entry.info.diagnostics = this.pushDiag(entry.info.diagnostics, 'USB device connected');
     if (entry.info.wantOpen) void this.openLink(entry.info.id);
@@ -281,16 +310,23 @@ export class PhysicalSource implements CanDataSource {
       diagnostics: [],
     };
     const entry: LinkEntry = { info, port, link: null as unknown as SerialLink };
+    // A forgotten entry may still report while it closes; ignore it.
+    const live = () => this.entries.includes(entry);
     entry.link = new SerialLink(
       port,
       {
-        onLine: (line) => this.onLine(entry, line),
+        onLine: (line) => {
+          if (live()) this.onLine(entry, line);
+        },
         onOverflow: (n) => {
+          if (!live()) return;
           info.overflows += n;
           info.lastInvalid = `line longer than ${SERIAL.maxDeviceLine} characters dropped`;
           this.dirty = true;
         },
-        onState: (state, detail) => this.onLinkState(entry, state, detail),
+        onState: (state, detail) => {
+          if (live()) this.onLinkState(entry, state, detail);
+        },
       },
       SERIAL.maxDeviceLine,
     );
