@@ -4,10 +4,11 @@
 
 | Check | Command | What it proves |
 |---|---|---|
-| Host unit tests | `sh tools/run-host-tests.sh` | Config validation, raw frame model and JSON encoding, TX gate, banner, decoder (EXAMPLE data) |
+| Host unit tests | `sh tools/run-host-tests.sh` | Generated protocol files up to date; config validation, raw frame/JSON, TX gate, banner, decoder; protocol v1 codec vs golden vectors; command parser and line limits; ECU schedule, commands and demo faults; Node 3 fault detection (timeouts, start-up grace, monitor bus-off vs heartbeat loss, DLC/checksum/counter/range/version, thresholds with hysteresis, recovery, clock wrap) and the demo-fault-to-detection contract; debounce, LEDs, buzzer, OLED pages; exact serial JSON lines. Fixed timestamps, no sleeps |
 | Firmware compile, all targets | `sh tools/build-firmware.sh` | The code compiles and links for `esp32dev`. **Nothing about hardware** |
 | Legacy sketch regression | `pio run -d firmware/node1 -e legacy_sketch` (and node2) | The unmodified original sketches still compile with the pinned toolchain |
-| Dashboard | `cd dashboard && npm run check` | Typecheck, ESLint, Vitest (logic + rendering of mock, empty, loading, stale, disconnected, error states, plus the read-only check) and production build |
+| Dashboard | `cd dashboard && npm run check` | Typecheck, ESLint, Vitest and production build. Vitest covers protocol vectors and value validation; strict parsing of every device line; line splitting and oversized lines; command ack/reject/unsupported/timeout/late-ack/link-loss; port discovery, contention, unplug and auto-reopen; identity conflicts; device restarts; fault-event dedupe and snapshot ordering; observed vs commanded rendering; mock states. It uses an in-memory Web Serial double, not a virtual CAN bus |
+| Physical procedure | `docs/physical-integration.md` | Flashing, bring-up and fault tests on the real boards (not yet run) |
 
 Results of each run go in `TASK.md` with the exact command and output summary.
 

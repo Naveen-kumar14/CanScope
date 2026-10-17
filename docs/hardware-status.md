@@ -9,7 +9,7 @@ Status labels (from the project brief):
 
 A successful compile **never** verifies hardware.
 
-## Current status (2026-10-13)
+## Current status (2026-10-13, Node 3 / dashboard rows updated 2026-10-17)
 
 | Item | Value in repo | Status | Evidence / note |
 |---|---|---|---|
@@ -20,14 +20,14 @@ A successful compile **never** verifies hardware.
 | Node 1 CAN TX/RX | GPIO17 / GPIO16 | Working assumption | `sketch_node1_test.ino` source only |
 | Node 2 CAN TX/RX | GPIO17 / GPIO16 | Working assumption | `sketch_node2_test.ino` source only |
 | Monitor CAN TX/RX | GPIO17 / GPIO16 | Working assumption | Copied from the legacy sketches. Monitor board unknown |
-| Node 3 CAN TX/RX | not set | Unverified | Candidates: GPIO22/21 (brief), GPIO17/16 (legacy). Firmware refuses to start CAN |
+| Node 3 CAN TX/RX | GPIO17 / GPIO16 (`firmware/monitor`) | Working assumption | Wiring ledger N3-06/N3-07 (PROVISIONAL). `firmware/node3` scaffold still refuses CAN and is not flashed on Node 3 |
 | Nominal bit rate | 500 kbit/s (nodes 1, 2, monitor) | Working assumption | Legacy sketches. Node 3: unverified |
 | Classical CAN vs CAN FD | classical | Working assumption | ESP32 TWAI cannot do CAN FD. Bus requirement unknown |
 | Identifier format | standard 11-bit in legacy sketch | Unverified | Firmware handles both formats |
 | Production CAN IDs and payloads | none | Unverified | Only test-sketch IDs 0x201/0x202/0x203/0x210 are known, from source |
 | Termination (2 × 120 Ω at bus ends) | n/a | Unverified | Measure about 60 Ω CANH–CANL with power off |
-| Node 3 role, sensors, I/O | none | Unverified / Blocked | No schematic or inventory available |
-| Dashboard transport and deployment | mock only | Unverified | USB-serial JSON lines implemented in firmware. No bridge yet |
+| Node 3 role, sensors, I/O | CANScope Monitor: SSD1306 (21/22), LEDs 25/26/27, buttons 32/33, buzzer drive 13 | Working assumption / buzzer BLOCKED | Wiring ledger (PROVISIONAL). Buzzer output disabled until gate G10 (Q1 pinout) passes |
+| Dashboard transport and deployment | Web Serial from `http://localhost` (Chrome/Edge) | Implemented, not hardware-tested | Unit/integration tests use an in-memory serial double only |
 
 ## How a value becomes verified
 

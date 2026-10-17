@@ -1,8 +1,12 @@
 # CANScope
 
-CANScope is an ESP32-based CAN bus monitoring project. ESP32 nodes capture raw CAN frames and report them, along with bus health, as JSON lines over USB serial. A **read-only** web dashboard displays them. Right now the dashboard runs on mock data.
+CANScope is a three-board ESP32 CAN demonstrator:
 
-> **Status (2026-10-13):** the software foundation builds and its tests pass. **No hardware has been verified.** Every GPIO, the bit rate, the transceiver and the Node 3 role are `UNVERIFIED` or `WORKING_ASSUMPTION`. See [docs/hardware-status.md](docs/hardware-status.md) and [TASK.md](TASK.md).
+- **Node 1** (Motor ECU) and **Node 2** (Battery ECU) transmit protocol v1 telemetry and heartbeats through SN65HVD230 transceivers.
+- **Node 3** (the CANScope Monitor) receives every frame, validates it, and detects faults on its own. It shows status on an SSD1306 OLED, three LEDs and a buzzer, and reports to the dashboard over USB serial.
+- The React dashboard connects to the real boards with **Web Serial**. It shows what Node 3 observed, kept separate from what each ECU reports about itself, and sends validated, acknowledged commands to the ECUs.
+
+> **Status (2026-10-17):** all firmware targets compile, and the host and dashboard tests pass. **Nothing has been flashed or run on hardware yet.** Pins are `WORKING_ASSUMPTION`, from the PROVISIONAL wiring ledger, and the buzzer is disabled until gate G10 passes. Start with [docs/physical-integration.md](docs/physical-integration.md). The protocol is in [docs/protocol/canscope-protocol-v1.md](docs/protocol/canscope-protocol-v1.md). History: [TASK.md](TASK.md).
 
 ## Repository layout
 
@@ -15,14 +19,21 @@ CANScope is an ESP32-based CAN bus monitoring project. ESP32 nodes capture raw C
 ├── docs/            architecture, hardware status, testing, wiring/node-3-pin-map, protocol/can-id-registry
 ├── firmware/
 │   ├── common/      shared PlatformIO libraries (one folder per library)
+│   │   ├── canscope_protocol/ protocol v1 codec + GENERATED protocol_spec.h (portable)
+│   │   ├── serial_link/       USB command parser, line limits, ack/hello JSON (portable)
+│   │   ├── ecu_core/          Node 1/2 sensor model, schedule, demo faults, commands (portable)
+│   │   ├── ecu_runtime/       Node 1/2 ESP32 glue (TWAI + USB serial)
+│   │   ├── monitor_core/      Node 3 validation, fault detection, JSON lines (portable)
+│   │   ├── monitor_ui/        Node 3 debounce, LED policy, buzzer pattern, OLED pages (portable)
 │   │   ├── can_config/        config model + validation (portable)
 │   │   ├── can_transport/     transport interface, TX gate (portable) + ESP32 TWAI driver
 │   │   ├── frame_capture/     raw frame model + JSON line encoder (portable)
 │   │   ├── protocol_decoder/  registry + decoder (portable)   <- addition to the planned layout
 │   │   ├── diagnostics/       start-up banner (portable)
 │   │   └── node_runtime/      shared ESP32 setup/loop          <- addition to the planned layout
-│   ├── node1/ node2/ node3/ monitor/   one PlatformIO project per ESP32 target
-├── dashboard/       Vite + React + TypeScript read-only dashboard
+│   ├── node1/ node2/ monitor/   Node 1, Node 2, Node 3 firmware   (node3/: old scaffold, do not flash)
+├── protocol/        canscope_protocol.json: the single protocol source (generates C++ and TS)
+├── dashboard/       Vite + React + TypeScript dashboard (Web Serial physical mode; labelled mock preview)
 ├── test/            host (PC) unit tests for the portable firmware code; integration/ for bench tests
 ├── captures/        approved CAN captures (private ones go in captures/private/, ignored)
 └── tools/           helper scripts
@@ -57,9 +68,15 @@ pio device monitor -b 115200 --port COM5                 # serial monitor
 sh tools/build-firmware.sh                               # build all targets incl. legacy sketches
 ```
 
-Targets: `firmware/node1` (`node1`, `legacy_sketch`), `firmware/node2` (`node2`, `legacy_sketch`), `firmware/node3` (`node3`), `firmware/monitor` (`monitor`).
+Targets: `firmware/node1` (`node1`, `legacy_sketch`), `firmware/node2` (`node2`, `legacy_sketch`), `firmware/monitor` (`monitor`, plus `monitor_buzzer` for after gate G10), `firmware/node3` (`node3`).
 
-Node 3 with its default config prints a banner and **refuses to start CAN**, because its pins and bit rate are UNVERIFIED. See [docs/wiring/node-3-pin-map.md](docs/wiring/node-3-pin-map.md) for how to run a recorded bench assumption.
+**The Node 3 hardware runs `firmware/monitor`.** `firmware/node3` is the earlier scaffold that refuses to start CAN; it is kept only as a build regression. All CANScope nodes use 460800 baud on USB.
+
+Flashing, port identification and bring-up: [docs/physical-integration.md](docs/physical-integration.md).
+
+### Protocol
+
+Edit `protocol/canscope_protocol.json`, then run `python tools/protocol/gen_protocol.py`. Its `--check` mode is part of the host tests.
 
 ### Host unit tests (PC, no hardware)
 
@@ -73,12 +90,14 @@ sh tools/run-host-tests.sh
 ```sh
 cd dashboard
 npm install
-npm run dev        # http://localhost:5173  (mock data; ?scenario=normal|empty|stale|disconnected|error|bus_off)
+npm run dev        # http://localhost:5173 in Chrome/Edge: physical mode (Web Serial); ?source=mock for the labelled preview
 npm run check      # typecheck + lint + tests + production build
 ```
 
 ## Documentation
 
+- [docs/physical-integration.md](docs/physical-integration.md): build, flash, ports, dashboard, bring-up, fault tests, diagnosis
+- [docs/protocol/canscope-protocol-v1.md](docs/protocol/canscope-protocol-v1.md): CAN IDs, payloads, timing, faults, USB serial lines and commands
 - [docs/architecture.md](docs/architecture.md): layers, serial JSON-line protocol, dashboard data boundary, out-of-scope features
 - [docs/hardware-status.md](docs/hardware-status.md): confirmed vs unverified values, and how a value becomes verified
 - [docs/wiring/node-3-pin-map.md](docs/wiring/node-3-pin-map.md): Node 3 pin-by-pin table
@@ -88,4 +107,8 @@ npm run check      # typecheck + lint + tests + production build
 
 ## Safety scope
 
-The dashboard is monitoring-only. It has no CAN transmit, command, actuator or relay controls, and its data interface has no send method. Firmware transmission is gated by `ENABLE_TX` (false in every target) and refused in listen-only mode. Any command feature needs a separate, approved specification (see [docs/architecture.md](docs/architecture.md#out-of-scope)).
+- The dashboard never puts a frame on the CAN bus. It only sends allow-listed text commands (`set`, `profile`, `fault`, `recover`, ...) to one board over that board's USB port, and the board validates each one again and acknowledges it.
+- Only Node 1 and Node 2 transmit (`ENABLE_TX=true`), and only their protocol frames. The monitor and node3 targets keep `ENABLE_TX=false`.
+- Bus-off recovery is never automatic.
+- The 5 V buzzer is switched by a low-side NPN and is never driven directly from a GPIO. Its output stays disabled until the transistor pinout (gate G10) is confirmed.
+- The command feature was requested on 2026-10-17 (see TASK.md).

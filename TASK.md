@@ -7,6 +7,7 @@ Canonical task file: `TASK.md` (no `task.md` existed; only this file is used).
 - Phase: phase 1 (repository foundation) **software-complete** as of 2026-10-13. Next phase: Stage 0/1 hardware inventory and evidence.
 - Overall state: all firmware targets build, and the host and dashboard tests pass. **No hardware or protocol value is verified.** Node 3 is blocked on its pin map and role.
 - Git: local repo on branch `main`, tracking `origin` = https://github.com/Naveen-kumar14/CanScope.git (see the 2026-10-13 Git entry).
+- 2026-10-17: protocol v1, Node 1/2 ECU firmware, Node 3 monitor firmware (OLED/LEDs/buttons/buzzer) and the Web Serial dashboard implemented; all builds and tests pass; **not yet flashed or run on hardware**. See the 2026-10-17 entry and docs/physical-integration.md.
 - 2026-10-16: physical build documentation **Rev 2.0-draft (NOT FINAL)**: canonical wiring ledger, corrected manual PDF, build video. Q1 buzzer transistor pinout BLOCKED; all other wires PROVISIONAL pending bench gates G1-G14. See the 2026-10-16 entry.
 
 ---
@@ -246,3 +247,99 @@ None. Datasheet facts were used for design; no physical value is verified.
 ### Next concrete action
 
 The user photographs each ESP32 shield and both headers (G1, G2) and each transceiver front and back (G4), measures the onboard CANH-CANL resistance of each bare module (G6), and reads the transistor marking (G10). Then update the ledger statuses and run bench stages per manual sections 15-17. The MP4 is gitignored (94 MB); decide whether to publish it via Git LFS or a GitHub release.
+
+---
+
+## 2026-10-17 — Physical hardware software: protocol v1, ECU and monitor firmware, Web Serial dashboard
+
+### Request and approval
+
+The user asked for the complete software for the three-board physical model:
+
+- Node 1 Motor ECU and Node 2 Battery ECU transmitting telemetry and heartbeats, with validated commands and demo faults
+- the Node 3 monitor with independent detection and the OLED/LED/button/buzzer peripherals
+- USB serial integration and a dashboard with working controls
+
+This is the explicit approval the earlier architecture asked for before any command feature (`docs/architecture.md`, "Extension point"). The user also said not to touch the manual, wiring diagrams, video, subtitles or doc tools; none of those files was modified.
+
+### Decisions
+
+- **One protocol source:**
+  - `protocol/canscope_protocol.json`. `tools/protocol/gen_protocol.py` generates `protocol_spec.h`, `protocol-spec.generated.ts`, and C++ and TS golden vectors; `--check` runs in `tools/run-host-tests.sh`.
+  - IDs: 0x120 motor, 0x220 battery, 0x701/0x702 heartbeats. These avoid the legacy 0x201-0x210, and the generator enforces that.
+  - DLC 8 BE with a byte 6 counter and a byte 7 checksum. 500 kbit/s, standard IDs. Spec: `docs/protocol/canscope-protocol-v1.md`.
+- **Node 3 firmware = `firmware/monitor`**, as the ledger, manual and `ledger.py` already assume. `firmware/node3` is left unchanged and must not be flashed on Node 3.
+- **Monitor CAN mode:**
+  - Changed from listen-only to normal mode with `ENABLE_TX=false`, so it ACKs frames. Without that, a single ECU on the bus cannot be tested.
+  - `-DMONITOR_LISTEN_ONLY=1` restores listen-only.
+- **Bus-off recovery:**
+  - Still never automatic. It is operator-triggered by serial `recover` or Node 3 button B long press.
+  - `TwaiTransport` now restarts the controller after a requested recovery completes.
+- **Serial at 460800 baud** for all CANScope nodes (monitor traffic is about 9 KB/s). Legacy sketches stay at 115200.
+- **Commands reach each ECU over its own USB port.** Node 3 detects faults only from the bus.
+  - The dashboard keeps "observed by Node 3" separate from "ECU self-report".
+- **Dashboard bridge = Web Serial** (Chrome/Edge on localhost). There is no separate process or native module.
+  - Without Web Serial, physical mode shows an error and never falls back to mock data.
+- **Buzzer disabled by default:** gate G10 (the Q1 pinout) is BLOCKED.
+  - Env `monitor_buzzer` enables it after G10.
+  - GPIO13 only drives Q1's base through 1 kOhm, as in the ledger.
+- **Adafruit SSD1306 2.5.13 / GFX 1.12.1 / BusIO 1.17.1**, pinned for the OLED. The address is probed at 0x3C/0x3D; the monitor retries every 10 s if absent.
+
+### Files
+
+New:
+- `protocol/canscope_protocol.json`, `tools/protocol/gen_protocol.py`
+- `firmware/common/{canscope_protocol,serial_link,ecu_core,ecu_runtime,monitor_core,monitor_ui}/`
+- `test/protocol/test_can_protocol.cpp`, `test/firmware_host/test_{serial_link,ecu_core,monitor_core,monitor_ui}.cpp`, generated vector headers
+- `dashboard/src/lib/{protocol.ts,protocol-spec.generated.ts}`, `dashboard/src/lib/serial/*`
+- `dashboard/src/components/{ConnectionPanel,TelemetryPanel,FaultPanel,ControlPanel,SelftestCard}.tsx`
+- dashboard tests `{protocol,serial-utils,serial-line-parser-v1,dashboard-state-v1,physical-source,DashboardPhysical}.test.*`, `fake-serial.ts`
+- `docs/protocol/canscope-protocol-v1.md`, `docs/physical-integration.md`
+
+Changed:
+- `firmware/node1|node2` (`main.cpp`, configs: TX enabled, 460800)
+- `firmware/monitor` (full Node 3 firmware, platformio.ini with lib_deps and `monitor_buzzer`)
+- `firmware/common/can_transport/twai_transport.*` (recovery restart, TX queue 8)
+- `firmware/common/frame_capture/json_writer.*` (signed, scaled and nested objects)
+- `test/CMakeLists.txt`, `tools/run-host-tests.sh`, `tools/build-firmware.sh`
+- dashboard `events.ts`, `serial-line-parser.ts`, `dashboard-state.ts`, `data-source.ts`, `use-can-scope.ts`, `protocol-registry.ts`, `decoder.ts`, `App.tsx`, `DashboardPage.tsx`, `StatusBar.tsx`, `StateBanner.tsx`, `FrameTable.tsx`, `styles.css`, and two existing tests (the old "no controls" assertion and the empty production registry)
+- docs: `README.md`, `dashboard/README.md`, `docs/architecture.md`, `docs/testing.md`, `docs/hardware-status.md` (Node 3 / dashboard rows), `docs/protocol/can-id-registry.md`, `tools/README.md`
+
+The node1/node2/monitor config headers were rewritten as UTF-8; they were Windows-1252. The `#define ..._CAN_TX/RX_GPIO` lines that `ledger.py` parses were kept.
+
+### Environment
+
+- PlatformIO Core 6.1.18 installed in `C:\canscope-pio\penv`. The earlier scratchpad venv was gone; packages were already cached in `C:\canscope-pio`.
+- PlatformIO downloaded the Adafruit libraries. The dashboard needed no new npm dependency.
+
+### Commands and exact results
+
+| Command | Result |
+|---|---|
+| `python tools/protocol/gen_protocol.py --check` | `protocol generated files up to date (4 files)` |
+| `sh tools/run-host-tests.sh` | exit 0. **10/10 suites passed** (5 existing + test_can_protocol 191 checks, test_serial_link 49, test_ecu_core 1786, test_monitor_core 216, test_monitor_ui 119). `-Wall -Wextra -Werror` |
+| First runs of the new host tests | `-Wformat-truncation` in a monitor detail string (shortened); a shadowed variable in a test; a wrong hand-computed checksum in a test (222, not 221). All fixed |
+| `sh tools/build-firmware.sh` (`PLATFORMIO_CORE_DIR=C:\canscope-pio`) | exit 0. **7/7 SUCCESS**: node1, node1/legacy_sketch, node2, node2/legacy_sketch, node3, monitor, monitor_buzzer. **0 `warning:` lines** in the whole log. node1/node2: RAM 6.7 %, flash 22.5 %. monitor: RAM 9.0 %, flash 25.3 % |
+| `python tools/hwdocs/ledger.py` (read-only check) | 8/8 firmware CAN GPIO bindings OK, no structural problems |
+| `cd dashboard && npm run check` | exit 0: tsc OK, eslint OK, **Vitest 69/69 passed (11 files)**, vite build OK (JS 295 kB / 90 kB gzip) |
+| First dashboard runs | 6 existing tests failed by design (old read-only assertion, renamed badge, v1 registry, event batching) and were updated. 3 new physical-source tests exposed lazily published acks/hellos, now published at once. A tsc error (`setImmediate` type) was fixed with a MessageChannel hop |
+| `npx vite --port 5179` + curl | `/`, `/src/main.tsx`, `/src/lib/serial/physical-source.ts`, `/src/components/ControlPanel.tsx` all HTTP 200. Server stopped |
+| Visual browser check | **Not done**: Claude-in-Chrome extension not connected |
+
+### Hardware or protocol values newly verified
+
+None. Nothing was flashed. No CAN frame, serial line from a real board, OLED, LED, button or buzzer was observed. Compilation and host tests prove only build and logic correctness.
+
+### Remaining software limitations
+
+- Web Serial only: no Firefox/Safari support, and no access from another PC on the LAN.
+- The monitor drops raw `frame` lines only if USB cannot keep up; `frames off` is the manual fallback.
+- The fault snapshot lists at most 10 active faults per line (flagged `truncated`).
+- Physical bus-off cannot be forced from software; it is only observed and recovered.
+- `drive` profile values are deterministic waves, not physical models.
+
+### Next concrete action
+
+1. Flash the three bare boards (`docs/physical-integration.md` sections 3-5) and confirm each one's banner, `hello` and a `@t1 help` ack.
+2. With the bench gates passed, run bring-up A/B/C (section 7) and save the first protocol v1 capture to `captures/`.
+3. Then work through the section 8 fault table and record the results here.

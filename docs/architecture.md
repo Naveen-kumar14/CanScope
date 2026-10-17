@@ -87,6 +87,21 @@ interface CanDataSource {
 
 To add live data, implement `CanDataSource`, for example as a WebSocket client fed by a serial bridge that uses `parseSerialLine()`, and select it in `dashboard/src/App.tsx`. The UI needs no other changes.
 
+## Protocol v1 and physical mode (2026-10-17)
+
+This section supersedes the read-only design above and below where they conflict.
+
+- **Protocol**: `protocol/canscope_protocol.json` generates the C++ and TS constants. The description is in `docs/protocol/canscope-protocol-v1.md`.
+- **Firmware layers**:
+  - Portable, host-tested: `canscope_protocol` (codec), `serial_link` (commands), `ecu_core` (Node 1/2), `monitor_core` (Node 3 detection), `monitor_ui` (Node 3 peripherals).
+  - ESP32 glue: `ecu_runtime` (Node 1/2) and `firmware/monitor/src/main.cpp` (Node 3: TWAI, Adafruit SSD1306, GPIO).
+- **Transport**: there is no separate bridge process.
+  - Chrome and Edge let a page served from `http://localhost` open USB serial ports directly (Web Serial).
+  - `dashboard/src/lib/serial/` holds four modules: `serial-link.ts` (one port), `line-splitter.ts`, `command-tracker.ts` and `physical-source.ts` (all ports: identification, routing, dedupe, reconnect).
+  - This avoids native Node modules and an extra service. The cost is that Firefox and Safari are unsupported; the page reports this instead of falling back to mock data.
+- **Commands**: `CommandChannel.sendCommand(node, text)` (`data-source.ts`) is a separate interface from the receive-only `CanDataSource`. Commands are allow-listed verbs, validated in the page and again on the device. Each one is tracked to `ok`, `rejected`, `unsupported`, `timeout`, `connection_lost` or `not_sent`.
+- **Observed vs commanded**: the dashboard state keeps Node 3's reports (`telemetry`, `node_health`, `fault`, `faults`) apart from ECU self-reports (`ecu_state`). A self-report is never shown as an observation.
+
 ## Out of scope
 
 Deliberately **not** implemented:
