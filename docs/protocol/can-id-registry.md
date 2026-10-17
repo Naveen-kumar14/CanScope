@@ -1,8 +1,8 @@
 # CAN ID and payload registry
 
-This is the authoritative registry. Code copies that must match it:
-- `firmware/common/protocol_decoder/protocol_registry.cpp`
-- `dashboard/src/lib/protocol-registry.ts`
+The CANScope protocol v1 IDs are defined in **one machine-readable source**, [`protocol/canscope_protocol.json`](../../protocol/canscope_protocol.json), described in [canscope-protocol-v1.md](canscope-protocol-v1.md). Firmware and dashboard code is generated from it (`tools/protocol/gen_protocol.py`), so the two cannot drift. This page summarises the IDs and keeps the legacy test-sketch entries.
+
+The legacy registry copies are `firmware/common/protocol_decoder/protocol_registry.cpp` and the legacy part of `dashboard/src/lib/protocol-registry.ts`.
 
 Rules:
 - No ID goes in as **verified** without named evidence (a specification, a known-good capture, or a controlled bench test).
@@ -14,20 +14,23 @@ Rules:
 | Parameter | Value | Status | Evidence |
 |---|---|---|---|
 | CAN version | Classical CAN | Working assumption | ESP32 TWAI limitation. Bus requirement unknown |
-| Identifier type | standard 11-bit (legacy sketch) | Unverified | `sketch_node2_test.ino` |
-| Nominal bit rate | 500 kbit/s | Working assumption | Legacy sketches only |
+| Identifier type | standard 11-bit | Specified (v1) | protocol v1 spec; legacy sketch also standard |
+| Nominal bit rate | 500 kbit/s | Specified (v1), not bench-verified | protocol v1 spec, legacy sketches |
 | Sample point / timing | ESP-IDF `TWAI_TIMING_CONFIG_500KBITS` preset | Working assumption | Driver default |
-| Byte order | big-endian in legacy test sketch | Unverified | Test sketch only |
-| Heartbeat / timeout | 0x210 every 500 ms (test sketch) | Unverified | Test sketch only |
-| Error handling | Bus-off reported, no auto-recovery | Design decision | `docs/architecture.md` |
+| Byte order | big-endian | Specified (v1) | protocol v1 spec (legacy sketch also big-endian) |
+| Heartbeat / timeout | 0x701/0x702 every 500 ms, lost after 1500 ms | Specified (v1) | protocol v1 spec |
+| Error handling | Bus-off reported, recovery only on operator request (`recover`, Node 3 button B long press) | Design decision | `docs/protocol/canscope-protocol-v1.md` |
 
-## Production registry
+## Production registry: CANScope protocol v1
 
-None. No production CAN ID has evidence yet.
+Evidence: the project's own specification, `protocol/canscope_protocol.json` (2026-10-17). These IDs are "verified" only in the sense of having a named specification, which is what lets the dashboard show physical units. **None has been captured on the physical bus yet.**
 
 | CAN ID | Format | Sender | Receiver(s) | Period / trigger | DLC | Payload fields | Byte order | Scaling / units | Counter / checksum | Evidence | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | |
+| 0x120 | standard | node1 | monitor | 100 ms | 8 | b0–1 `rpm` u16; b2–3 `motorTempC` i16 | BE | 1 rpm; 0.1 °C | b6 counter, b7 checksum | protocol v1 spec | SPECIFIED, not captured |
+| 0x220 | standard | node2 | monitor | 100 ms | 8 | b0–1 `packVoltageV` u16; b2–3 `packCurrentA` i16; b4 `socPct` u8 | BE | 0.01 V; 0.1 A; 1 % | b6 counter, b7 checksum | protocol v1 spec | SPECIFIED, not captured |
+| 0x701 | standard | node1 | monitor | 500 ms | 8 | b0 version, b1 node id, b2–4 fw, b5 CAN state | n/a | — | b6 counter, b7 checksum | protocol v1 spec | SPECIFIED, not captured |
+| 0x702 | standard | node2 | monitor | 500 ms | 8 | as 0x701 | n/a | — | b6 counter, b7 checksum | protocol v1 spec | SPECIFIED, not captured |
 
 ## Legacy test-sketch traffic (UNVERIFIED)
 

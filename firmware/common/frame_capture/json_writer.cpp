@@ -52,7 +52,46 @@ void JsonWriter::begin_object() {
   first_field_ = true;
 }
 
-void JsonWriter::end_object() { put('}'); }
+void JsonWriter::end_object() {
+  put('}');
+  first_field_ = false;  // a closed nested object counts as a field of its parent
+}
+
+void JsonWriter::field_object(const char* name) {
+  key(name);
+  begin_object();
+}
+
+void JsonWriter::i64(int64_t value) {
+  if (value < 0) {
+    put('-');
+    u64(static_cast<uint64_t>(0) - static_cast<uint64_t>(value));
+  } else {
+    u64(static_cast<uint64_t>(value));
+  }
+}
+
+void JsonWriter::field_i64(const char* name, int64_t value) {
+  key(name);
+  i64(value);
+}
+
+void JsonWriter::field_scaled(const char* name, int32_t raw, uint8_t decimals) {
+  key(name);
+  const bool negative = raw < 0;
+  uint32_t v = negative ? 0u - static_cast<uint32_t>(raw) : static_cast<uint32_t>(raw);
+  uint32_t div = 1;
+  for (uint8_t i = 0; i < decimals; ++i) div *= 10;
+  if (negative) put('-');
+  u64(v / div);
+  if (decimals) {
+    put('.');
+    uint32_t frac = v % div;
+    for (uint32_t d = div / 10; d > 0; d /= 10) {
+      put(static_cast<char>('0' + (frac / d) % 10));
+    }
+  }
+}
 
 void JsonWriter::key(const char* name) {
   if (!first_field_) put(',');
