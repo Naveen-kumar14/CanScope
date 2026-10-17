@@ -18,6 +18,11 @@ export function StateBanner({ view, origin, detail, lastEventAgeMs }: Props) {
           examples. Nothing shown here is a verified CAN definition.
         </div>
       )}
+      {view === 'idle' && origin === 'live' && (
+        <div className="banner banner-info" role="status" data-testid="state-idle">
+          {detail ?? 'Not connected.'} Nothing below is live until a CANScope node reports.
+        </div>
+      )}
       {view === 'loading' && (
         <div className="banner banner-info" role="status" data-testid="state-loading">
           Connecting to data source…
@@ -44,7 +49,7 @@ export function StateBanner({ view, origin, detail, lastEventAgeMs }: Props) {
       )}
       {view === 'empty' && (
         <div className="banner banner-info" role="status" data-testid="state-empty">
-          Connected — no CAN frames received yet.
+          Connected — no CAN frames received yet{origin === 'live' ? ' (connect Node 3, the monitor, to see bus traffic)' : ''}.
         </div>
       )}
     </>

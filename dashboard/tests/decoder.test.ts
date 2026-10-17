@@ -34,8 +34,22 @@ const f = (canId: string, data: number[], extra: Partial<{ remote: boolean; iden
 });
 
 describe('decoder', () => {
-  it('has no production registry entries yet', () => {
-    expect(PRODUCTION_REGISTRY).toHaveLength(0);
+  it('production registry = the generated protocol v1 IDs, backed by the spec (not a bench capture)', () => {
+    expect(PRODUCTION_REGISTRY.map((e) => e.canId)).toEqual([0x120, 0x220, 0x701, 0x702]);
+    for (const e of PRODUCTION_REGISTRY) {
+      expect(e.status).toBe('verified');
+      expect(e.evidence).toMatch(/specification v1/);
+      expect(e.evidence).toMatch(/not yet captured/);
+    }
+  });
+
+  it('decodes a protocol v1 motor frame to physical units', () => {
+    // rpm 1500, 65.0 degC, counter 0 (golden bytes from the generator)
+    const r = decodeFrame(f('0x120', [0x05, 0xdc, 0x02, 0x8a, 0, 0, 0, 0x71]));
+    expect(r.status).toBe('decoded');
+    expect(r.fields.find((x) => x.name === 'rpm')).toMatchObject({ raw: 1500, physical: 1500, unit: 'rpm' });
+    expect(r.fields.find((x) => x.name === 'motorTempC')).toMatchObject({ raw: 650, physical: 65, unit: '°C' });
+    expect(decodeFrame(f('0x120', [1, 2, 3, 4])).status).toBe('mismatch');  // DLC 4
   });
 
   it('keeps unknown IDs as unknown', () => {

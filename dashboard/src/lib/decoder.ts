@@ -67,7 +67,7 @@ export function decodeFrame(
     fields.push({
       name: f.name,
       raw,
-      physical: usePhysical && f.scaling ? raw * f.scaling.factor + f.scaling.offset : null,
+      physical: usePhysical && f.scaling ? Math.round((raw * f.scaling.factor + f.scaling.offset) * 1e6) / 1e6 : null,
       unit: usePhysical && f.scaling ? f.scaling.unit : null,
     });
   }

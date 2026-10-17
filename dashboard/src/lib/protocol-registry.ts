@@ -1,11 +1,15 @@
-// Dashboard copy of the CAN ID registry. The authoritative, human-readable
-// registry is docs/protocol/can-id-registry.md; firmware/common/protocol_decoder
-// holds the C++ copy. Keep all three in step.
+// Dashboard CAN ID registry used by the raw frame table and frame detail.
 //
-// NO production IDs exist yet. Only IDs observed in the existing
-// sketch_node2_test.ino test sketch are listed, all UNVERIFIED.
+// - CANScope protocol v1 entries are generated from the single protocol
+//   source (protocol/canscope_protocol.json via protocol-spec.generated.ts).
+//   They are 'verified' in the registry sense "backed by a named
+//   specification" - the project's own v1 spec - so physical values are shown.
+//   That is NOT a claim that the traffic has been captured on the bench.
+// - IDs observed in the legacy sketch_node2_test.ino stay UNVERIFIED.
+// Human-readable registry: docs/protocol/can-id-registry.md.
 
 import type { IdentifierFormat } from '../types/events';
+import { MESSAGES, PROTOCOL_EVIDENCE } from './protocol-spec.generated';
 
 export type ByteOrder = 'big_endian' | 'little_endian' | 'unverified';
 
@@ -34,7 +38,31 @@ export interface RegistryEntry {
   status: 'unverified' | 'verified';
 }
 
-export const PRODUCTION_REGISTRY: readonly RegistryEntry[] = [];
+export const PRODUCTION_REGISTRY: readonly RegistryEntry[] = MESSAGES.map((m) => ({
+  canId: m.canId,
+  identifierFormat: 'standard' as const,
+  name: `${m.name} (protocol v1)`,
+  sender: m.sender,
+  receivers: 'monitor',
+  periodMs: m.periodMs,
+  trigger: 'periodic',
+  dlc: m.dlc,
+  fields: [
+    ...m.fields.map((f) => ({
+      name: f.key,
+      startByte: f.start,
+      lengthBytes: f.length as 1 | 2,
+      signed: f.signed,
+      byteOrder: 'big_endian' as const,
+      scaling: { factor: f.factor, offset: 0, unit: f.unit === 'degC' ? '°C' : f.unit },
+    })),
+    { name: 'counter', startByte: m.counterByte, lengthBytes: 1 as const, signed: false, byteOrder: 'big_endian' as const, scaling: { factor: 1, offset: 0, unit: '' } },
+    { name: 'checksum', startByte: m.checksumByte, lengthBytes: 1 as const, signed: false, byteOrder: 'big_endian' as const, scaling: { factor: 1, offset: 0, unit: '' } },
+  ],
+  counterChecksum: `byte ${m.counterByte} rolling counter, byte ${m.checksumByte} checksum`,
+  evidence: PROTOCOL_EVIDENCE,
+  status: 'verified' as const,
+}));
 
 const LEGACY_EVIDENCE =
   'sketch_node2_test.ino source only (test sketch, constant values, never captured)';

@@ -28,6 +28,7 @@ export function FrameTable({ frames, selectedSeq, onSelect }: Props) {
             <th>DLC</th>
             <th>Data</th>
             <th>Decoder</th>
+            <th>Node 3 verdict</th>
           </tr>
         </thead>
         <tbody>
@@ -48,6 +49,9 @@ export function FrameTable({ frames, selectedSeq, onSelect }: Props) {
               <td className="mono">{formatPayload(f.data)}</td>
               <td>
                 <DecoderStatusBadge status={decodeFrame(f).status} />
+              </td>
+              <td className={f.check === undefined ? 'muted' : f.accepted ? 'tone-ok' : 'tone-warn'}>
+                {f.check === undefined ? '—' : f.accepted ? 'accepted' : f.check.replace(/_/g, ' ')}
               </td>
             </tr>
           ))}

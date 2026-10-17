@@ -29,8 +29,11 @@ export function StatusBar({ origin, sourceLabel, connection, children }: Props) 
     <header className="status-bar">
       <div className="brand">
         <h1>CANScope</h1>
-        <span className="badge badge-readonly" title="This dashboard cannot transmit CAN frames or control anything">
-          Read-only monitor · no CAN transmission
+        <span
+          className="badge badge-readonly"
+          title="The dashboard never puts frames on the CAN bus. It only sends allow-listed text commands to a node over that node's USB port."
+        >
+          No raw CAN transmit · allow-listed USB commands only
         </span>
       </div>
       <div className="status-items">
@@ -38,7 +41,7 @@ export function StatusBar({ origin, sourceLabel, connection, children }: Props) 
           className={`badge ${origin === 'mock' ? 'badge-mock' : 'badge-live'}`}
           data-testid="data-origin"
         >
-          {origin === 'mock' ? 'MOCK DATA' : 'LIVE DATA'}
+          {origin === 'mock' ? 'MOCK DATA' : 'PHYSICAL · LIVE'}
         </span>
         <span className={`pill tone-${CONNECTION_TONE[connection]}`} data-testid="connection-status">
           <span className="dot" aria-hidden="true" />

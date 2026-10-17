@@ -1,14 +1,15 @@
-// Transport-neutral data boundary between the UI and whatever delivers CAN
-// events (mock generator today; serial bridge / WebSocket / HTTP later).
+// Transport-neutral data boundary between the UI and whatever delivers CANScope
+// events: the physical USB-serial source (serial/physical-source.ts) or the
+// mock preview (mock-data/mock-source.ts).
 //
-// READ-ONLY BY DESIGN: this interface has no send/transmit/command method.
-//
-// Future extension point (NOT implemented, needs a separate approved spec):
-// a command channel would be a *separate* interface (e.g. `CanCommandChannel`)
-// with its own authorization, allow-listed IDs and audit log. It must not be
-// added to CanDataSource. See docs/architecture.md "Out of scope".
+// CanDataSource is receive-only. Commands to physical nodes go through the
+// separate CommandChannel below, which only the physical source implements:
+// it sends allow-listed text commands to an ECU or the monitor over USB and
+// tracks each one until the device acknowledges it. There is no way to put an
+// arbitrary frame on the CAN bus from the dashboard.
 
-import type { CanScopeEvent, DataOrigin } from '../types/events';
+import type { DeviceNode, CanScopeEvent, DataOrigin } from '../types/events';
+import type { CommandRecord } from './serial/command-tracker';
 
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -22,4 +23,8 @@ export interface CanDataSource {
   readonly label: string;
   connect(handlers: DataSourceHandlers): void;
   disconnect(): void;
+}
+
+export interface CommandChannel {
+  sendCommand(node: DeviceNode, text: string): Promise<CommandRecord>;
 }

@@ -6,7 +6,7 @@ import { FakeSource, frame, status } from './helpers';
 
 function setup(kind: 'mock' | 'live' = 'mock') {
   const source = new FakeSource(kind);
-  const utils = render(<DashboardPage source={source} />);
+  const utils = render(<DashboardPage source={source} flushMs={0} />);
   return { source, ...utils };
 }
 
@@ -17,10 +17,11 @@ describe('DashboardPage', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('is visibly read-only and has no command/transmit controls', () => {
+  it('never offers raw CAN transmission, and a mock source has no command controls', () => {
     setup();
-    expect(screen.getByText(/Read-only monitor · no CAN transmission/)).toBeInTheDocument();
-    // The only interactive controls are the three local view filters.
+    expect(screen.getByText(/No raw CAN transmit · allow-listed USB commands only/)).toBeInTheDocument();
+    // Without a physical node there is nothing to command: no decorative buttons.
+    expect(screen.getByTestId('controls-unavailable')).toHaveTextContent('Unavailable with mock data');
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.queryAllByRole('link')).toHaveLength(0);
     expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('placeholder'))).toEqual(['e.g. 0x201']);
@@ -36,7 +37,7 @@ describe('DashboardPage', () => {
 
   it('live source has no mock banner', () => {
     setup('live');
-    expect(screen.getByTestId('data-origin')).toHaveTextContent('LIVE DATA');
+    expect(screen.getByTestId('data-origin')).toHaveTextContent('PHYSICAL · LIVE');
     expect(screen.queryByTestId('mock-banner')).toBeNull();
   });
 
