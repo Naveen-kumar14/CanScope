@@ -61,3 +61,62 @@ describe('parseSerialLine: protocol v1 device lines', () => {
     expect(bad('{"type":"telemetry"}')).toMatchObject({ kind: 'invalid' });
   });
 });
+
+describe('parseSerialLine: CAN frame and status validation', () => {
+  const STATUS =
+    '{"type":"status","sourceNode":"node1","deviceTimeUs":9,"busState":"error_passive","driverRunning":true,"mode":"normal","txEnabled":true,"bitrate":500000,"configStatus":"WORKING_ASSUMPTION","txErrorCount":128,"rxErrorCount":0,"rxFrames":0,"txFrames":0,"txFailed":37,"rxMissed":0,"busErrors":12,"arbitrationLost":0,"busOffEvents":0,"transceiverCheck":"no_echo"}';
+  const frame = (fields: string) =>
+    `{"type":"frame","sourceNode":"monitor","deviceTimeUs":1,${fields},"busState":"error_active"}`;
+
+  it('accepts classical CAN frames whose payload matches the DLC', () => {
+    expect(ev(frame('"canId":"0x7FF","identifierFormat":"standard","remote":false,"dlc":0,"data":[]'))).toMatchObject({ dlc: 0 });
+    expect(ev(frame('"canId":"0x1FFFFFFF","identifierFormat":"extended","remote":false,"dlc":1,"data":[5]'))).toMatchObject({
+      canId: '0x1FFFFFFF',
+    });
+    // DLC 9..15 is legal on a classical bus and carries 8 bytes.
+    expect(ev(frame('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":12,"data":[1,2,3,4,5,6,7,8]'))).toMatchObject({
+      dlc: 12,
+    });
+    // A remote frame carries no data whatever its DLC.
+    expect(ev(frame('"canId":"0x120","identifierFormat":"standard","remote":true,"dlc":8,"data":[]'))).toMatchObject({ remote: true });
+  });
+
+  it('rejects impossible frames instead of correcting them', () => {
+    const reason = (fields: string) => (bad(frame(fields)) as { reason?: string }).reason;
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":8,"data":[1,2,3,4]')).toBe(
+      'frame: 4 data bytes do not match DLC 8',
+    );
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":4,"data":[1,2,3,4,5,6,7,8]')).toMatch(/do not match DLC 4/);
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":12,"data":[1,2,3,4,5,6,7,8,9,10,11,12]')).toMatch(
+      /do not match DLC 12/,
+    );
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":true,"dlc":2,"data":[1,2]')).toMatch(/remote frame/);
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":16,"data":[]')).toBe('frame: bad dlc');
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":1.5,"data":[1]')).toBe('frame: bad dlc');
+    expect(reason('"canId":"0x20000000","identifierFormat":"extended","remote":false,"dlc":0,"data":[]')).toMatch(/out of range/);
+    expect(reason('"canId":"0x00000000120","identifierFormat":"standard","remote":false,"dlc":0,"data":[]')).toBe('frame: bad canId');
+    expect(reason('"canId":"0x120","identifierFormat":"fd","remote":false,"dlc":0,"data":[]')).toBe('frame: bad identifierFormat');
+    expect(reason('"canId":"0x120","remote":false,"dlc":0,"data":[]')).toBe('frame: bad identifierFormat');
+    expect(reason('"canId":"0x120","identifierFormat":"standard","dlc":0,"data":[]')).toBe('frame: bad remote flag');
+    expect(reason('"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":1,"data":[1],"txErrorCount":-1')).toBe(
+      'frame: bad txErrorCount',
+    );
+  });
+
+  it('parses a full status line, including the transceiver check', () => {
+    expect(ev(STATUS)).toMatchObject({ type: 'status', txFailed: 37, txErrorCount: 128, transceiverCheck: 'no_echo' });
+    // Older firmware without the field: reported as not available, not as a pass.
+    expect(ev(STATUS.replace(',"transceiverCheck":"no_echo"', ''))).toMatchObject({ transceiverCheck: null });
+  });
+
+  it('never turns a missing or invalid diagnostic counter into zero', () => {
+    expect(bad(STATUS.replace('"txFailed":37,', ''))).toMatchObject({ kind: 'invalid', reason: 'status: missing or invalid txFailed' });
+    expect(bad(STATUS.replace('"rxFrames":0', '"rxFrames":null'))).toMatchObject({ reason: 'status: missing or invalid rxFrames' });
+    expect(bad(STATUS.replace('"busErrors":12', '"busErrors":"12"'))).toMatchObject({ reason: 'status: missing or invalid busErrors' });
+    expect(bad(STATUS.replace('"error_passive"', '"sleepy"'))).toMatchObject({ reason: 'status: bad busState' });
+    expect(bad(STATUS.replace('"driverRunning":true', '"driverRunning":1'))).toMatchObject({ reason: 'status: bad flags' });
+    expect(bad(STATUS.replace('"bitrate":500000', '"bitrate":-1'))).toMatchObject({ reason: 'status: bad bitrate' });
+    expect(bad(STATUS.replace('"WORKING_ASSUMPTION"', '"PROBABLY"'))).toMatchObject({ reason: 'status: bad configStatus' });
+    expect(bad(STATUS.replace('"no_echo"', '"fine"'))).toMatchObject({ reason: 'status: bad transceiverCheck' });
+  });
+});

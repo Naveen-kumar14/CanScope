@@ -47,6 +47,13 @@ export interface LinkInfo {
   diagnostics: string[];
 }
 
+export interface ForgetResult {
+  removed: boolean;
+  /** What happened to the browser's permission for the port. */
+  permission: 'revoked' | 'unsupported' | 'failed' | 'not_attempted';
+  detail: string;
+}
+
 export interface PhysicalSnapshot {
   supported: boolean;
   unsupportedReason: string | null;
@@ -185,13 +192,17 @@ export class PhysicalSource implements CanDataSource {
 
   /**
    * Removes an unidentified port: drops it from the snapshot at once, closes
-   * it (also while it is still opening) and revokes the page's permission for
-   * it where the browser supports that. Ports identified as a CANScope node
-   * are never forgotten here.
+   * it (also while it is still opening) and asks the browser to revoke the
+   * page's permission for it where port.forget() exists. The result says
+   * whether that revocation really happened. Ports identified as a CANScope
+   * node are never forgotten here.
    */
-  async forgetPort(id: string): Promise<boolean> {
+  async forgetPort(id: string): Promise<ForgetResult> {
     const e = this.entries.find((x) => x.info.id === id);
-    if (!e || e.info.node !== null) return false;
+    if (!e) return { removed: false, permission: 'not_attempted', detail: 'port not found' };
+    if (e.info.node !== null) {
+      return { removed: false, permission: 'not_attempted', detail: `port identifies as ${e.info.node}; it is not forgotten` };
+    }
     e.info.wantOpen = false;
     this.entries = this.entries.filter((x) => x !== e);
     this.forgotten.add(e.port);
@@ -199,12 +210,24 @@ export class PhysicalSource implements CanDataSource {
     this.updateConnection();
     this.publish();
     await e.link.close();
-    try {
-      await e.port.forget?.();
-    } catch {
-      /* permission stays granted; the in-memory guard still applies */
+    if (typeof e.port.forget !== 'function') {
+      return {
+        removed: true,
+        permission: 'unsupported',
+        detail: 'Removed for this session. This browser cannot revoke serial permission; it may list the port again after a reload.',
+      };
     }
-    return true;
+    try {
+      await e.port.forget();
+      return { removed: true, permission: 'revoked', detail: 'Removed and serial permission revoked.' };
+    } catch (err) {
+      // The in-memory guard still keeps it out of this session.
+      return {
+        removed: true,
+        permission: 'failed',
+        detail: `Removed for this session, but the browser did not revoke permission: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
   }
 
   async openAllKnown(): Promise<void> {
@@ -239,7 +262,7 @@ export class PhysicalSource implements CanDataSource {
       this.publish();
       return r;
     }
-    const record = this.tracker.create(node, trimmed, now);
+    const record = this.tracker.create(node, trimmed, now, { linkId: target[0].info.id, bootId: target[0].info.bootId });
     this.publish();
     try {
       await target[0].link.writeLine(`@${record.id} ${trimmed}`);
@@ -400,7 +423,7 @@ export class PhysicalSource implements CanDataSource {
     }
 
     if (event.type === 'ack') {
-      if (info.node) this.tracker.applyAck(info.node, event, now);
+      if (info.node) this.tracker.applyAck(info.node, event, now, info.id);
       this.publish();  // command results must show at once
     }
     if (event.type === 'fault') {

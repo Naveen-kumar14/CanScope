@@ -189,6 +189,7 @@ export class MockCanDataSource implements CanDataSource {
       busErrors: busOff ? 32 : 0,
       arbitrationLost: 0,
       busOffEvents: busOff ? 1 : 0,
+      transceiverCheck: null,  // the mock never claims a hardware check
       origin: 'mock',
     };
   }

@@ -64,6 +64,13 @@ export class SerialLink {
   private state: PortState = 'closed';
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writeChain: Promise<void> = Promise.resolve();
+  /** port.open()/port.close() calls run one at a time, in call order. */
+  private portOps: Promise<unknown> = Promise.resolve();
+  /**
+   * Incremented by every open(), close() and loss. An async continuation that
+   * started under an older generation must not change the current state.
+   */
+  private generation = 0;
   private readonly splitter: LineSplitter;
   private readonly encoder = new TextEncoder();
   private closingByUser = false;
@@ -82,37 +89,39 @@ export class SerialLink {
 
   async open(baudRate: number): Promise<boolean> {
     if (this.state === 'open' || this.state === 'opening') return this.state === 'open';
+    const gen = ++this.generation;
     this.closingByUser = false;
     this.setState('opening');
-    try {
-      await this.port.open({ baudRate, bufferSize: 16384 });
-    } catch (e) {
-      if (!this.closingByUser) this.setState('error', explainOpenError(e));
-      return false;
-    }
-    if (this.closingByUser) {
-      // close() was called while the port was still opening: release it again.
+    const opened = await this.portOp(async () => {
+      if (gen !== this.generation) return false;  // superseded before it started
       try {
-        await this.port.close();
-      } catch {
-        /* already gone */
+        await this.port.open({ baudRate, bufferSize: 16384 });
+      } catch (e) {
+        if (gen === this.generation) this.setState('error', explainOpenError(e));
+        return false;
       }
-      return false;
-    }
+      if (gen !== this.generation) {
+        // close(), a loss or a newer open() happened while the port was opening.
+        await this.releasePort();
+        return false;
+      }
+      return true;
+    });
+    if (!opened) return false;
     this.splitter.reset();
     this.setState('open');
-    void this.readLoop();
+    void this.readLoop(gen);
     return true;
   }
 
-  private async readLoop(): Promise<void> {
-    while (this.state === 'open' && this.port.readable) {
+  private async readLoop(gen: number): Promise<void> {
+    while (gen === this.generation && this.state === 'open' && this.port.readable) {
       const reader = this.port.readable.getReader();
       this.reader = reader;
       try {
         for (;;) {
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done || gen !== this.generation) break;
           if (!value) continue;
           const { lines, overflows } = this.splitter.push(value);
           if (overflows) this.handlers.onOverflow(overflows);
@@ -121,17 +130,16 @@ export class SerialLink {
       } catch (e) {
         // BreakError/FramingError/ParityError are recoverable: keep reading.
         const name = e instanceof Error ? e.name : '';
-        if (!this.closingByUser && !['BreakError', 'FramingError', 'ParityError', 'BufferOverrunError'].includes(name)) {
-          this.setState('lost', e instanceof Error ? e.message : 'device lost');
+        if (!['BreakError', 'FramingError', 'ParityError', 'BufferOverrunError'].includes(name)) {
+          this.lose(gen, e instanceof Error ? e.message : 'device lost');
         }
       } finally {
         reader.releaseLock();
-        this.reader = null;
+        if (this.reader === reader) this.reader = null;
       }
-      if (this.closingByUser) break;
-      if (!this.port.readable) break;
+      if (this.closingByUser || !this.port.readable) break;
     }
-    if (this.state === 'open' && !this.closingByUser) this.setState('lost', 'serial stream ended');
+    this.lose(gen, 'serial stream ended');
   }
 
   /** Writes one line (a newline is appended). Writes are serialised. */
@@ -140,7 +148,8 @@ export class SerialLink {
       if (this.state !== 'open' || !this.port.writable) throw new Error('port not open');
       const writer = this.port.writable.getWriter();
       try {
-        await writer.write(this.encoder.encode(`${text}\n`));
+        await writer.write(this.encoder.encode(`${text}
+`));
       } finally {
         writer.releaseLock();
       }
@@ -152,25 +161,64 @@ export class SerialLink {
 
   async close(): Promise<void> {
     if (this.state === 'closed') return;
+    const wasOpening = this.state === 'opening';
+    ++this.generation;
     this.closingByUser = true;
     this.setState('closing');
-    try {
-      await this.reader?.cancel();
-    } catch {
-      /* already gone */
+    await this.cancelReader();
+    // An open() still in flight sees the new generation when it finishes and
+    // releases the port itself; waiting for it here could wait forever.
+    if (!wasOpening) {
+      await this.portOp(async () => {
+        await this.writeChain;
+        await this.releasePort();
+      });
     }
-    try {
-      await this.writeChain;
-      await this.port.close();
-    } catch {
-      /* unplugged ports cannot be closed cleanly */
-    }
-    this.setState('closed');
+    // A newer open() may already have started; it owns the state now.
+    if (this.state === 'closing') this.setState('closed');
   }
 
   /** Called when the browser reports the USB device was unplugged. */
   markLost(): void {
-    if (this.state === 'open' || this.state === 'opening') this.setState('lost', 'USB device disconnected');
+    if (this.state === 'open' || this.state === 'opening') this.lose(this.generation, 'USB device disconnected');
+  }
+
+  /**
+   * The device went away while open (or opening). The port stays "opened" for
+   * the browser until close() is called, so it is released here; otherwise the
+   * automatic reopen after a replug fails with InvalidStateError.
+   */
+  private lose(gen: number, detail: string): void {
+    if (gen !== this.generation || this.closingByUser) return;
+    if (this.state !== 'open' && this.state !== 'opening') return;
+    ++this.generation;
+    this.setState('lost', detail);
+    void this.cancelReader();
+    void this.portOp(() => this.releasePort());
+  }
+
+  private async cancelReader(): Promise<void> {
+    try {
+      await this.reader?.cancel();
+    } catch {
+      // The stream has already errored (device gone); there is nothing to cancel.
+    }
+  }
+
+  /** port.close() when the port may or may not still be open. */
+  private async releasePort(): Promise<void> {
+    try {
+      await this.port.close();
+    } catch {
+      // InvalidStateError (never opened / already closed) or the device is
+      // gone: either way the port no longer holds an open handle.
+    }
+  }
+
+  private portOp<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.portOps.then(op, op);
+    this.portOps = run.catch(() => undefined);
+    return run;
   }
 
   private setState(state: PortState, detail?: string): void {

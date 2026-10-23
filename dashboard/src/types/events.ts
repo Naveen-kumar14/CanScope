@@ -60,6 +60,9 @@ export interface CanFrameEvent extends Base {
   accepted?: boolean;
 }
 
+/** Start-up transceiver echo check (firmware can_transport/transceiver_check.h). */
+export type TransceiverCheck = 'not_run' | 'ok' | 'rx_not_driven' | 'rx_stuck_dominant' | 'no_echo' | 'inconsistent';
+
 export interface NodeStatusEvent extends Base {
   type: 'status';
   busState: BusState;
@@ -77,6 +80,8 @@ export interface NodeStatusEvent extends Base {
   busErrors: number;
   arbitrationLost: number;
   busOffEvents: number;
+  /** null: the firmware does not report the check (older build). */
+  transceiverCheck: TransceiverCheck | null;
 }
 
 export interface HelloEvent extends Base {

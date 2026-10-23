@@ -14,6 +14,11 @@ export class FakePort implements SerialPortLike {
   openGate: Promise<void> | null = null;
   closed = 0;
   forgotten = 0;
+  /**
+   * Web Serial spec: a port stays "opened" until close() is called, even after
+   * the device is unplugged; open() on it rejects with InvalidStateError.
+   */
+  isOpen = false;
   private controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder();
@@ -23,12 +28,13 @@ export class FakePort implements SerialPortLike {
   async open(): Promise<void> {
     if (this.openGate) await this.openGate;
     if (this.openError) throw this.openError;
-    if (this.readable) {
+    if (this.isOpen) {
       const e = new Error('The port is already open.');
       e.name = 'InvalidStateError';
       throw e;
     }
     this.opened += 1;
+    this.isOpen = true;
     this.readable = new ReadableStream<Uint8Array>({
       start: (c) => {
         this.controller = c;
@@ -42,7 +48,13 @@ export class FakePort implements SerialPortLike {
   }
 
   async close(): Promise<void> {
+    if (!this.isOpen) {
+      const e = new Error('The port is already closed.');
+      e.name = 'InvalidStateError';
+      throw e;
+    }
     this.closed += 1;
+    this.isOpen = false;
     this.readable = null;
     this.writable = null;
     this.controller = null;
@@ -51,7 +63,7 @@ export class FakePort implements SerialPortLike {
   /** Counts calls only: getPorts() keeps listing it, like a browser without forget(). */
   async forget(): Promise<void> {
     this.forgotten += 1;
-    await this.close();
+    if (this.isOpen) await this.close();
   }
 
   getInfo() {
@@ -67,7 +79,7 @@ export class FakePort implements SerialPortLike {
     this.controller?.enqueue(bytes);
   }
 
-  /** Simulates the USB cable being pulled: the read stream errors. */
+  /** Simulates the USB cable being pulled: the read stream errors; the port stays "opened". */
   unplug(): void {
     const e = new Error('The device has been lost.');
     e.name = 'NetworkError';

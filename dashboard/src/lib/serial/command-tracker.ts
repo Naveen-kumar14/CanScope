@@ -26,9 +26,31 @@ export interface CommandRecord {
   resolvedAtMs: number | null;
   /** An ack that arrived after the command had already timed out or failed. */
   lateAck: string | null;
+  /** Serial link the command was written to (null if never written). */
+  linkId: string | null;
+  /** Device boot the command was sent to, when the device had announced one. */
+  bootId: string | null;
+}
+
+export interface CommandTarget {
+  linkId: string;
+  bootId: string | null;
 }
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,16}$/;
+const SESSION_TAG_LENGTH = 6;
+
+/**
+ * Random per-page-session tag (36^6, about 2.2e9 values). Uses the browser's
+ * cryptographic generator where it exists, so two sessions practically never
+ * share a prefix.
+ */
+export function randomSessionTag(): string {
+  const bytes = new Uint8Array(SESSION_TAG_LENGTH);
+  if (typeof globalThis.crypto?.getRandomValues === 'function') globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
+}
 
 export class CommandTracker {
   private records: CommandRecord[] = [];
@@ -38,14 +60,15 @@ export class CommandTracker {
   constructor(
     private readonly timeoutMs: number,
     private readonly maxRecords = 100,
-    sessionTag = Math.floor(Math.random() * 36 ** 3).toString(36),
+    sessionTag = randomSessionTag(),
   ) {
     // Ids must be unique across page reloads so a late ack from a previous
-    // session is never matched to a new command.
-    this.prefix = `w${sessionTag.replace(/[^a-z0-9]/gi, '').slice(0, 4)}`;
+    // session is never matched to a new command. "w" + 6 tag characters +
+    // the base-36 sequence stays within the firmware's 16-character limit.
+    this.prefix = `w${sessionTag.replace(/[^a-z0-9]/gi, '').slice(0, SESSION_TAG_LENGTH)}`;
   }
 
-  create(node: DeviceNode, text: string, nowMs: number): CommandRecord {
+  create(node: DeviceNode, text: string, nowMs: number, target: CommandTarget | null = null): CommandRecord {
     this.seq += 1;
     const id = `${this.prefix}${this.seq.toString(36)}`;
     if (!ID_PATTERN.test(id)) throw new Error(`invalid command id ${id}`);
@@ -58,6 +81,8 @@ export class CommandTracker {
       sentAtMs: nowMs,
       resolvedAtMs: null,
       lateAck: null,
+      linkId: target?.linkId ?? null,
+      bootId: target?.bootId ?? null,
     };
     this.records = [record, ...this.records].slice(0, this.maxRecords);
     return record;
@@ -72,12 +97,15 @@ export class CommandTracker {
 
   /**
    * Applies an ack from `fromNode`. Returns true if it resolved a pending
-   * command. Acks with unknown ids, from the wrong node, or repeated acks
-   * are ignored (late ones are recorded, never turned into success).
+   * command. Acks with unknown ids, from the wrong node, from another serial
+   * link, from another device boot, or repeated acks are ignored (late ones
+   * are recorded, never turned into success).
    */
-  applyAck(fromNode: DeviceNode, ack: AckEvent, nowMs: number): boolean {
+  applyAck(fromNode: DeviceNode, ack: AckEvent, nowMs: number, fromLinkId?: string): boolean {
     const r = this.records.find((x) => x.id === ack.id);
     if (!r || r.node !== fromNode) return false;
+    if (r.linkId !== null && fromLinkId !== undefined && r.linkId !== fromLinkId) return false;
+    if (r.bootId !== null && ack.bootId !== r.bootId) return false;
     if (r.state !== 'pending') {
       if (r.lateAck === null && (r.state === 'timeout' || r.state === 'connection_lost')) {
         this.update(r.id, { lateAck: `${ack.status}: ${ack.detail}` });

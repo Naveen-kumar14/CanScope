@@ -296,7 +296,7 @@ describe('PhysicalSource', () => {
       // Removed from the snapshot before the close finishes.
       expect(published).toBeGreaterThan(0);
       expect(t.source.getSnapshot().links.map((l) => l.id)).not.toContain(id);
-      expect(await done).toBe(true);
+      expect(await done).toMatchObject({ removed: true, permission: 'revoked' });
       await settle();
 
       expect(stray.closed).toBeGreaterThan(0);
@@ -314,8 +314,8 @@ describe('PhysicalSource', () => {
     it('refuses to forget an identified node port', async () => {
       const t = await withNodes();
       const n1 = t.source.getSnapshot().links.find((l) => l.node === 'node1')!;
-      expect(await t.source.forgetPort(n1.id)).toBe(false);
-      expect(await t.source.forgetPort('no-such-port')).toBe(false);
+      expect(await t.source.forgetPort(n1.id)).toMatchObject({ removed: false, permission: 'not_attempted' });
+      expect(await t.source.forgetPort('no-such-port')).toMatchObject({ removed: false });
       expect(t.source.getSnapshot().links).toHaveLength(3);
       expect(t.n1.closed).toBe(0);
       expect(t.source.linkFor('node1')?.id).toBe(n1.id);
@@ -330,7 +330,7 @@ describe('PhysicalSource', () => {
       await t.add(port);
       const link = t.source.getSnapshot().links[0];
       expect(link.state).toBe('error');
-      expect(await t.source.forgetPort(link.id)).toBe(true);
+      expect((await t.source.forgetPort(link.id)).removed).toBe(true);
       expect(t.source.getSnapshot().links).toEqual([]);
       expect(t.connection.at(-1)).toMatch(/^idle/);
     });
@@ -346,8 +346,8 @@ describe('PhysicalSource', () => {
       await settle();
       const [a, b] = t.source.getSnapshot().links;
       expect([a.state, b.state]).toEqual(['closed', 'lost']);
-      expect(await t.source.forgetPort(a.id)).toBe(true);
-      expect(await t.source.forgetPort(b.id)).toBe(true);
+      expect((await t.source.forgetPort(a.id)).removed).toBe(true);
+      expect((await t.source.forgetPort(b.id)).removed).toBe(true);
       expect(t.source.getSnapshot().links).toEqual([]);
       expect(closed.opened).toBe(0);
     });
@@ -395,6 +395,75 @@ describe('PhysicalSource', () => {
       expect(again).toHaveLength(1);
       expect(again[0].id).not.toBe(id);
       expect(again[0].state).toBe('open');
+    });
+  });
+
+  describe('serial lifecycle', () => {
+    it('releases a lost port so the reopen after a replug does not hit "already open"', async () => {
+      const t = setup();
+      const port = new FakePort();
+      await t.add(port);
+      port.unplug();  // read stream errors; no disconnect event yet
+      await settle();
+      expect(t.source.getSnapshot().links[0].state).toBe('lost');
+      expect(port.isOpen).toBe(false);  // closed by the dashboard after the loss
+      t.api.fire('connect', port);
+      await settle();
+      expect(t.source.getSnapshot().links[0]).toMatchObject({ state: 'open', detail: null });
+    });
+
+    it('a stale open that finishes after Disconnect + Connect cannot leave two handles or a wrong state', async () => {
+      const t = setup();
+      const port = new FakePort();
+      let release!: () => void;
+      port.openGate = new Promise<void>((r) => (release = r));
+      t.api.nextPick = port;
+      const first = t.source.addPort();
+      await settle();
+      const id = t.source.getSnapshot().links[0].id;
+      await t.source.closeLink(id);  // Disconnect while still opening
+      expect(t.source.getSnapshot().links[0].state).toBe('closed');
+      const second = t.source.openLink(id);  // Connect again before the first open finished
+      release();
+      await first;
+      await second;
+      await settle();
+      expect(port.opened).toBe(2);  // the stale open was closed again ...
+      expect(port.closed).toBe(1);
+      expect(port.isOpen).toBe(true);  // ... and exactly one handle is left
+      expect(t.source.getSnapshot().links[0].state).toBe('open');
+      port.emit(`${LINES.helloNode1}
+`);
+      await settle();
+      expect(t.events.filter((e) => e.type === 'hello')).toHaveLength(1);  // one reader, not two
+    });
+
+    it('shows an open failure on the port card and keeps it out of the open count', async () => {
+      const t = setup();
+      const port = new FakePort();
+      const denied = new Error('Access denied.');
+      denied.name = 'SecurityError';
+      port.openError = denied;
+      await t.add(port);
+      expect(t.source.getSnapshot().links[0]).toMatchObject({ state: 'error', detail: expect.stringMatching(/blocked by the browser/) });
+      expect(t.connection.at(-1)).toMatch(/^error/);
+    });
+
+    it('reports whether forgetting a port really revoked the browser permission', async () => {
+      const t = setup();
+      const noApi = new FakePort();
+      (noApi as { forget?: unknown }).forget = undefined;  // browser without port.forget()
+      await t.add(noApi);
+      const failing = new FakePort();
+      failing.forget = async () => {
+        throw new Error('not allowed');
+      };
+      await t.add(failing);
+      const [a, b] = t.source.getSnapshot().links;
+      expect(await t.source.forgetPort(a.id)).toMatchObject({ removed: true, permission: 'unsupported' });
+      const r = await t.source.forgetPort(b.id);
+      expect(r).toMatchObject({ removed: true, permission: 'failed' });
+      expect(r.detail).toMatch(/did not revoke permission: not allowed/);
     });
   });
 });

@@ -19,6 +19,7 @@ import type {
   FaultSeverity,
   IdentifierFormat,
   LinkState,
+  TransceiverCheck,
   ValueStatus,
 } from '../types/events';
 import { isVerifiedFrame } from './decoder';
@@ -43,6 +44,27 @@ const LINK_STATES: readonly LinkState[] = ['unknown', 'waiting', 'ok', 'lost'];
 const SEVERITIES: readonly FaultSeverity[] = ['info', 'warning', 'critical'];
 const DEVICE_NODES: readonly DeviceNode[] = ['node1', 'node2', 'monitor'];
 const ECU_NODES: readonly EcuNode[] = ['node1', 'node2'];
+const ID_FORMATS: readonly IdentifierFormat[] = ['standard', 'extended'];
+const TRANSCEIVER_CHECKS: readonly TransceiverCheck[] = [
+  'not_run',
+  'ok',
+  'rx_not_driven',
+  'rx_stuck_dominant',
+  'no_echo',
+  'inconsistent',
+];
+const STATUS_COUNTERS = [
+  'txErrorCount',
+  'rxErrorCount',
+  'rxFrames',
+  'txFrames',
+  'txFailed',
+  'rxMissed',
+  'busErrors',
+  'arbitrationLost',
+  'busOffEvents',
+] as const;
+const MAX_CLASSICAL_PAYLOAD = 8;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
@@ -119,15 +141,26 @@ type Base = {
 function parseEvent(raw: Record<string, unknown>, base: Base): CanScopeEvent | null {
   switch (raw.type) {
     case 'frame': {
-      const format: IdentifierFormat = raw.identifierFormat === 'extended' ? 'extended' : 'standard';
+      // Classical CAN only (the ESP32 TWAI controller cannot do CAN FD). The
+      // firmware always sends identifierFormat, remote, dlc and data, so a
+      // missing or mistyped field is an invalid line, never a guessed value.
+      need(oneOf(ID_FORMATS, raw.identifierFormat), 'frame: bad identifierFormat');
+      const format: IdentifierFormat = raw.identifierFormat;
+      need(typeof raw.remote === 'boolean', 'frame: bad remote flag');
       const canId = typeof raw.canId === 'string' ? raw.canId : '';
+      // 8 hex digits are enough for any 29-bit id and keep parseInt exact.
+      need(/^0x[0-9a-fA-F]{1,8}$/.test(canId), 'frame: bad canId');
       const idValue = Number.parseInt(canId, 16);
-      const maxId = format === 'extended' ? 0x1fffffff : 0x7ff;
-      const dlc = num(raw.dlc);
-      const data = Array.isArray(raw.data) ? raw.data : null;
-      need(/^0x[0-9a-fA-F]+$/.test(canId) && !Number.isNaN(idValue) && idValue <= maxId, 'bad canId');
-      need(dlc !== undefined && Number.isInteger(dlc) && dlc >= 0 && dlc <= 15, 'bad dlc');
-      need(!!data && data.length <= 8 && data.every((b) => Number.isInteger(b) && b >= 0 && b <= 255), 'bad data');
+      need(idValue <= (format === 'extended' ? 0x1fffffff : 0x7ff), 'frame: canId out of range for its format');
+      const dlc = raw.dlc;
+      // DLC 9..15 is legal on a classical bus and still means 8 data bytes.
+      need(nonNegInt(dlc) && dlc <= 15, 'frame: bad dlc');
+      need(Array.isArray(raw.data) && raw.data.every((b) => Number.isInteger(b) && b >= 0 && b <= 255), 'frame: bad data');
+      const data = raw.data as number[];
+      const expectedBytes = raw.remote ? 0 : Math.min(dlc, MAX_CLASSICAL_PAYLOAD);
+      need(data.length === expectedBytes, `frame: ${data.length} data bytes do not match ${raw.remote ? 'a remote frame' : `DLC ${dlc}`}`);
+      need(raw.txErrorCount === undefined || nonNegInt(raw.txErrorCount), 'frame: bad txErrorCount');
+      need(raw.rxErrorCount === undefined || nonNegInt(raw.rxErrorCount), 'frame: bad rxErrorCount');
       const event = {
         type: 'frame' as const,
         ...base,
@@ -152,27 +185,38 @@ function parseEvent(raw: Record<string, unknown>, base: Base): CanScopeEvent | n
     }
 
     case 'status': {
-      const configStatus = VALUE_STATUSES.includes(raw.configStatus as ValueStatus)
-        ? (raw.configStatus as ValueStatus)
-        : 'UNVERIFIED';
+      // Every field is required: a missing counter must never read as a
+      // genuine zero. Only transceiverCheck is optional (older firmware).
+      need(oneOf(BUS_STATES, raw.busState), 'status: bad busState');
+      need(typeof raw.driverRunning === 'boolean' && typeof raw.txEnabled === 'boolean', 'status: bad flags');
+      need(str(raw.mode) && raw.mode !== '', 'status: bad mode');
+      need(nonNegInt(raw.bitrate), 'status: bad bitrate');
+      need(oneOf(VALUE_STATUSES, raw.configStatus), 'status: bad configStatus');
+      for (const c of STATUS_COUNTERS) need(nonNegInt(raw[c]), `status: missing or invalid ${c}`);
+      need(
+        raw.transceiverCheck === undefined || oneOf(TRANSCEIVER_CHECKS, raw.transceiverCheck),
+        'status: bad transceiverCheck',
+      );
+      const counter = (c: (typeof STATUS_COUNTERS)[number]) => raw[c] as number;
       return {
         type: 'status',
         ...base,
-        busState: busState(raw.busState),
-        driverRunning: raw.driverRunning === true,
-        mode: typeof raw.mode === 'string' ? raw.mode : 'unknown',
-        txEnabled: raw.txEnabled === true,
-        bitrate: num(raw.bitrate) ?? 0,
-        configStatus,
-        txErrorCount: num(raw.txErrorCount) ?? 0,
-        rxErrorCount: num(raw.rxErrorCount) ?? 0,
-        rxFrames: num(raw.rxFrames) ?? 0,
-        txFrames: num(raw.txFrames) ?? 0,
-        txFailed: num(raw.txFailed) ?? 0,
-        rxMissed: num(raw.rxMissed) ?? 0,
-        busErrors: num(raw.busErrors) ?? 0,
-        arbitrationLost: num(raw.arbitrationLost) ?? 0,
-        busOffEvents: num(raw.busOffEvents) ?? 0,
+        busState: raw.busState,
+        driverRunning: raw.driverRunning as boolean,
+        mode: raw.mode,
+        txEnabled: raw.txEnabled as boolean,
+        bitrate: raw.bitrate,
+        configStatus: raw.configStatus,
+        txErrorCount: counter('txErrorCount'),
+        rxErrorCount: counter('rxErrorCount'),
+        rxFrames: counter('rxFrames'),
+        txFrames: counter('txFrames'),
+        txFailed: counter('txFailed'),
+        rxMissed: counter('rxMissed'),
+        busErrors: counter('busErrors'),
+        arbitrationLost: counter('arbitrationLost'),
+        busOffEvents: counter('busOffEvents'),
+        transceiverCheck: raw.transceiverCheck === undefined ? null : raw.transceiverCheck,
       };
     }
 

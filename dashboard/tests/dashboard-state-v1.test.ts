@@ -48,6 +48,7 @@ const monitorStatus: CanScopeEvent = {
   busErrors: 0,
   arbitrationLost: 0,
   busOffEvents: 0,
+  transceiverCheck: null,
 };
 
 function run(events: CanScopeEvent[], start: DashboardState = initialState('live', 'x'), t0 = 1000): DashboardState {

@@ -64,6 +64,7 @@ export function status(overrides: Partial<NodeStatusEvent> = {}): NodeStatusEven
     busErrors: 0,
     arbitrationLost: 0,
     busOffEvents: 0,
+    transceiverCheck: null,
     origin: 'mock',
     ...overrides,
   };

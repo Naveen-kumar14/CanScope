@@ -4,7 +4,7 @@
 // explicit clock.
 import { describe, expect, it } from 'vitest';
 
-import { CommandTracker } from '../src/lib/serial/command-tracker';
+import { CommandTracker, randomSessionTag } from '../src/lib/serial/command-tracker';
 import { LineSplitter } from '../src/lib/serial/line-splitter';
 import type { AckEvent } from '../src/types/events';
 
@@ -82,5 +82,27 @@ describe('CommandTracker', () => {
     expect(t.list()[0].text).toBe('d');
     const ids = new Set(t.list().map((r) => r.id));
     expect(ids.size).toBe(3);
+  });
+
+  it('ignores a delayed ack from another serial link or another device boot', () => {
+    const t = new CommandTracker(1500, 100, 'abc');
+    const r = t.create('node1', 'status', 0, { linkId: 'port2', bootId: 'deadbeef' });
+    // Same id and node, but it arrived on a different port (e.g. a second board flashed as node1).
+    expect(t.applyAck('node1', ack(r.id, 'ok'), 5, 'port7')).toBe(false);
+    // Same port, but from an earlier boot of the device: not an answer to this command.
+    expect(t.applyAck('node1', { ...ack(r.id, 'ok'), bootId: '0badf00d' }, 6, 'port2')).toBe(false);
+    expect(t.get(r.id)!.state).toBe('pending');
+    expect(t.applyAck('node1', ack(r.id, 'ok'), 7, 'port2')).toBe(true);
+  });
+
+  it('builds ids from a 6-character random session tag within the firmware id limit', () => {
+    const tags = new Set(Array.from({ length: 200 }, () => randomSessionTag()));
+    expect(tags.size).toBe(200);  // no collisions in 200 sessions
+    for (const tag of tags) expect(tag).toMatch(/^[a-z0-9]{6}$/);
+    const t = new CommandTracker(1500, 2000);
+    let last = '';
+    for (let i = 0; i < 1500; i++) last = t.create('node1', 'status', i).id;
+    expect(last).toMatch(/^w[a-z0-9]{6}[a-z0-9]+$/);
+    expect(last.length).toBeLessThanOrEqual(16);
   });
 });

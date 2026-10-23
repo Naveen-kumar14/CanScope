@@ -48,20 +48,24 @@ describe('parseSerialLine', () => {
     expect(parseSerialLine('', at).kind).toBe('empty');
     expect(parseSerialLine('TWAI driver installed successfully', at).kind).toBe('invalid');
     expect(parseSerialLine('{not json', at).kind).toBe('invalid');
-    expect(parseSerialLine('{"type":"frame","canId":"0x800","dlc":0,"data":[]}', at)).toMatchObject({
+    expect(
+      parseSerialLine('{"type":"frame","canId":"0x800","identifierFormat":"standard","remote":false,"dlc":0,"data":[]}', at),
+    ).toMatchObject({
       kind: 'invalid',
-      reason: 'bad canId',
+      reason: 'frame: canId out of range for its format',
     });
-    expect(parseSerialLine('{"type":"frame","canId":"0x100","dlc":2,"data":[1,300]}', at)).toMatchObject({
+    expect(
+      parseSerialLine('{"type":"frame","canId":"0x100","identifierFormat":"standard","remote":false,"dlc":2,"data":[1,300]}', at),
+    ).toMatchObject({
       kind: 'invalid',
-      reason: 'bad data',
+      reason: 'frame: bad data',
     });
     expect(parseSerialLine('{"type":"command"}', at).kind).toBe('invalid');
   });
 
   it('normalises extended IDs to 8 hex digits', () => {
     const r = parseSerialLine(
-      '{"type":"frame","canId":"0x18fef100","identifierFormat":"extended","dlc":0,"data":[]}',
+      '{"type":"frame","canId":"0x18fef100","identifierFormat":"extended","remote":false,"dlc":0,"data":[]}',
       at,
     );
     if (r.kind !== 'event' || r.event.type !== 'frame') throw new Error('expected frame');
