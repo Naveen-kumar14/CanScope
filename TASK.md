@@ -343,3 +343,47 @@ None. Nothing was flashed. No CAN frame, serial line from a real board, OLED, LE
 1. Flash the three bare boards (`docs/physical-integration.md` sections 3-5) and confirm each one's banner, `hello` and a `@t1 help` ack.
 2. With the bench gates passed, run bring-up A/B/C (section 7) and save the first protocol v1 capture to `captures/`.
 3. Then work through the section 8 fault table and record the results here.
+
+---
+
+## 2026-10-23 — Dashboard UX redesign, validation and serial lifecycle fixes, CAN link diagnosis
+
+### Summary
+
+The user reported that all three USB serial ports open and ECU commands are acknowledged, but Node 3 shows `N1 HB: LOST` / `N2 HB: LOST`, the dashboard frame rate and monitor RX count stay 0, ECU transmit failures rise, and CANH–CANL measures about 57–62 Ω. Node 1 and Node 2 both run in normal mode and would acknowledge each other's frames, so both failing means the fault is common to the bus wiring, not only Node 3. Code cannot fix that, so a start-up transceiver echo check and a plain-language CAN link diagnosis were added to locate it. Confirmed software defects were fixed with regression tests, and the dashboard was reorganised into tabs.
+
+### Confirmed defects fixed (each with a regression test that fails on the old code)
+
+- **Status lines defaulted missing counters to 0** (`serial-line-parser.ts`): every status field is now required and typed; a missing counter makes the line invalid.
+- **Frames with an impossible DLC/payload were accepted** (DLC 8 with 4 bytes, data on a remote frame, missing `identifierFormat` silently read as standard): rejected now. DLC 9–15 with 8 bytes stays valid for classical CAN.
+- **A port lost on unplug was never closed** (`serial-link.ts`): per the Web Serial spec it stays "opened", so the automatic reopen after replug hit `InvalidStateError`. The lost port is now released. The fake port in the tests now follows the spec.
+- **Stale async `open()` continuations could change the current state** (Disconnect + Connect while a port was opening left two handles and two readers): there is now one generation counter, and port open/close calls are serialised.
+- **`forgetPort` always reported success**: it now reports `revoked` / `unsupported` / `failed`, and the UI shows that.
+- **Command acks were matched only by id and node**: they are now also bound to the serial link and the device boot. Session tags went from 3 `Math.random` base-36 characters to 6 `crypto.getRandomValues` characters.
+- **Fault list stayed "No active faults" after Node 3 was unplugged**, and a stale list could tick a requested fault as "detected": both now show *unknown*. "No active faults" waits for the first fault list.
+- **Firmware status line buffer (384 B) was smaller than the worst-case line (~500 B)**: `encode_status_json` would return 0 and silently drop the line. Raised to 640 B in the ECU, monitor and node3 runtimes; host test added.
+- Mock mode said its generated frames were "captured by Node 3"; the wording now depends on the mode. The idle physical header said "PHYSICAL · LIVE" in green; it is now a neutral badge plus "USB: n of 3 boards".
+
+### Added
+
+- Firmware: `can_transport/transceiver_check.{h,cpp}` (portable classifier, host-tested) and a start-up echo check in `TwaiTransport::begin()` (skipped in listen-only). It drives TX for 8 × ~6 µs and reads RX with pull-up/pull-down. The result appears in the banner (`# CAN transceiver echo check: ...`) and as `transceiverCheck` in every `status` line. It does not test CANH/CANL or termination.
+- Dashboard: tabs (Overview, Live CAN data, Fault testing, Connections, Diagnostics; WAI-ARIA keyboard pattern; URL hash), system status strip, CAN link check (`lib/bus-diagnosis.ts`), a controller table with the transceiver echo result, and status icons (shape + text, never colour alone).
+
+### Commands and exact results
+
+| Command | Result |
+|---|---|
+| `cd dashboard && npm run check` | exit 0: tsc OK, eslint OK, **Vitest 98/98 (12 files)**, vite build OK (JS 316 kB / 96 kB gzip). Baseline before the work: 76/76 |
+| `sh tools/run-host-tests.sh` | `protocol generated files up to date (4 files)`; **10/10 suites passed** (test_can_transport 27 checks, was 7) |
+| `sh tools/build-firmware.sh` (`PLATFORMIO_CORE_DIR=C:/canscope-pio`) | exit 0, **7/7 SUCCESS**, no `warning:` lines. Monitor flash 25.4 % |
+| Headless Chrome (DevTools protocol) on the dev server and `vite preview` | every tab at 1440 px and 390 px (mobile emulation): no horizontal overflow, no console errors; keyboard Tab/ArrowRight focus verified visually |
+
+The Claude-in-Chrome extension was not connected; headless Chrome was used instead. No Web Serial port could be opened in headless mode, so physical mode was checked only in its unconnected state.
+
+### Hardware or protocol values newly verified
+
+None. No board was available to this session. The symptoms above are as reported by the user.
+
+### Next concrete action
+
+Flash the new `node1`, `node2` and `monitor` builds and read each board's `# CAN transceiver echo check:` line (or the Diagnostics tab). Then follow `docs/physical-integration.md` section 9: a failing check names that board's TX/RX/Rs/power wiring; if all three pass, check CANH↔CANH and CANL↔CANL continuity between the modules and confirm there is no CANH–CANL short.

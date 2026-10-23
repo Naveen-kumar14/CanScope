@@ -15,8 +15,18 @@ npm run check        # all of the above
 ## Physical mode (default)
 
 1. Close any other serial monitor using the boards.
-2. Press **Add serial port…** and pick the port of one board. Repeat for Node 1, Node 2 and Node 3. Ports are identified by each board's `hello` / `status` lines, never by order. The browser remembers granted ports, so later **Connect known ports** reopens them. A port that is unplugged while connected is reopened when it comes back.
+2. On the **Connections** tab, press **Add serial port…** and pick the port of one board. Repeat for Node 1, Node 2 and Node 3. Ports are identified by each board's `hello` / `status` lines, never by order. The browser remembers granted ports, so later **Connect known ports** reopens them. A port that is unplugged while connected is reopened when it comes back.
 3. Speed: 460800 baud (`protocol/canscope_protocol.json`, `serial.baud`).
+
+The page has five tabs:
+
+- **Overview**: the system status strip (boards on USB, CAN traffic at Node 3, faults detected, worst controller state), the **CAN link check** (plain-language findings and next steps derived from the boards' own counters: an open USB port is never presented as working CAN), ECU telemetry and Node 3's faults.
+- **Live CAN data**: frame table, filters, frame detail and traffic counters.
+- **Fault testing**: requested faults vs. Node 3 detection, controls and the command log.
+- **Connections**: one card per USB port, Forget for unidentified ports (it reports whether browser permission was really revoked).
+- **Diagnostics**: per-board CAN controller table (TEC/REC, RX/TX, TX failed, bus errors, transceiver echo check) and the Node 3 self-test.
+
+The selected tab is kept in the URL hash (`#faults`, ...). Tabs follow the WAI-ARIA pattern (arrow keys, Home, End).
 
 What you see:
 
@@ -42,7 +52,8 @@ Browsers without Web Serial (Firefox, Safari), or a page not served from `localh
 - `src/lib/serial-line-parser.ts`: strict parser for every device line type
 - `src/lib/dashboard-state.ts`: reducer; observed vs self-reported state, fault ordering and snapshots
 - `src/lib/data-source.ts`: receive-only `CanDataSource` plus a separate `CommandChannel`
-- `src/components/`: `ConnectionPanel`, `TelemetryPanel`, `FaultPanel`, `ControlPanel` (+ command log), `SelftestCard`, plus the existing bus/frame views
+- `src/lib/bus-diagnosis.ts`: pure CAN link diagnosis (findings + next steps) from status lines
+- `src/components/`: `TabNav`, `SystemStatus`, `BusDiagnosis`, `StatusIcon`, `ConnectionPanel`, `TelemetryPanel`, `FaultPanel` (`DetectedFaults`, `CommandedFaults`), `ControlPanel` (+ command log), `NodeHealthCards` (controller table), `SelftestCard`, plus the bus/frame views
 - `tests/`: unit and rendering tests. `fake-serial.ts` is an in-memory stand-in for the browser's serial API only; there is no virtual CAN bus or ECU
 
 ## Safety scope

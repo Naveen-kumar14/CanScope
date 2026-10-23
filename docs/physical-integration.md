@@ -62,6 +62,7 @@ You should see:
 
 - a `# ====` banner with the node name, `CAN TX: GPIO17 RX: GPIO16 [WORKING_ASSUMPTION]`, `bit rate: 500000`
 - `# CAN init: OK - controller running`
+- `# CAN transceiver echo check: ok - ...`. At start-up, before CAN starts, the board pulses its TX pin and checks that the transceiver echoes it on RX. This runs on one bare board with nothing else on the bus. Any other result names the likely wiring cause (see section 9). It does **not** test CANH/CANL or termination.
 - a `{"type":"hello",...}` line, then `status` and `ecu_state` (or, on the monitor, `node_health` and `faults`) lines every second
 
 The first lines after reset are unreadable: that is the ESP32 ROM at 115200 baud, and it is normal.
@@ -87,7 +88,7 @@ npm run dev            # open http://localhost:5173 in Chrome or Edge
 ```
 
 1. *Data source* must say **Physical (USB serial)**. Physical mode never shows mock data. If Web Serial is missing, the page shows an error instead.
-2. Press **Add serial port…**, pick one board's port, and repeat for each board. Each card becomes *Node 1 – Motor ECU*, *Node 2 – Battery ECU* or *Node 3 – CANScope Monitor* from what the board itself reports, not from the order you added them.
+2. Open the **Connections** tab, press **Add serial port…**, pick one board's port, and repeat for each board. Each card becomes *Node 1 – Motor ECU*, *Node 2 – Battery ECU* or *Node 3 – CANScope Monitor* from what the board itself reports, not from the order you added them.
 3. The browser remembers granted ports. Next time, use **Connect known ports**. A port that is unplugged while connected is reopened automatically when it comes back.
 
 | Card shows | Meaning |
@@ -111,15 +112,15 @@ The trunk, both 120 Ω terminators (RT1 at TRX1, RT2 at TRX3) and the 60 Ω chec
 
 **B. Node 3 + Node 2.** Unplug Node 1 and plug in Node 2, then check the same things for `0x220` / `0x702`, `48.00 V 12.0 A 85 %`.
 
-**C. All three.** After about 2 s, *Faults detected by Node 3* shows **No active faults**, the green LED is on, and the OLED shows `CANScope MON OK`.
+**C. All three.** The **Overview** tab's *CAN link check* says **CAN bus operational**. After about 2 s, *Faults detected by Node 3* shows **No active faults**, the green LED is on, and the OLED shows `CANScope MON OK`.
 
 If a step fails, see section 9 before going further.
 
 ## 8. Fault detection and recovery tests
 
-Use the **Controls** panel; each ECU card has *Inject* / *Clear fault* and *Set* fields. Every command must show **acknowledged** in the command log. An ack only proves the ECU accepted it.
+Use the **Fault testing** tab; each ECU card has *Inject* / *Clear fault* and *Set* fields. Every command must show **acknowledged** in the command log. An ack only proves the ECU accepted it.
 
-The pass criterion is the *Faults detected by Node 3* column, which comes from CAN. The *Commanded demo faults* column shows what was requested and ticks each expected detection only once Node 3 reports it.
+The pass criterion is the *Faults detected by Node 3* column, which comes from CAN. The *Requested faults vs. detection* card shows what was requested and ticks each expected detection only once Node 3 reports it.
 
 | Test (Node 1, then repeat on Node 2) | Expected Node 3 detection | Recovery after *Clear fault* |
 |---|---|---|
@@ -155,6 +156,10 @@ Bus-off is not forced by software. If a controller does go bus-off (a wiring fau
 | Symptom | Likely cause / check |
 |---|---|
 | `# CAN init: FAILED (config_invalid…)` | a `-D` pin override is invalid; read the banner's ERROR lines |
+| Overview *CAN link check*: **Frames are not acknowledged on the CAN bus** (all USB ports open, ECU `txFailed` rising, Node 3 RX 0) | USB works; the CAN wiring does not. If Node 1 and Node 2 both fail, they cannot hear each other either, so the fault is common to all transceivers. First read each board's *Transceiver echo* on the **Diagnostics** tab: a failure there pinpoints that board's TX/RX/Rs/power wiring. If all three pass, the fault is on CANH/CANL: continuity CANH↔CANH and CANL↔CANL between all modules, no CANH–CANL short (the 60 Ω reading does not prove this) |
+| `transceiverCheck` `no_echo` | Rs pin high/floating (standby: tie Rs to GND), transceiver D input not on GPIO17, or TX/RX swapped |
+| `transceiverCheck` `rx_not_driven` | transceiver R output not on GPIO16, transceiver without 3.3 V/GND, or TX/RX swapped |
+| `transceiverCheck` `rx_stuck_dominant` | CANH–CANL short, a node holding the bus dominant, or a faulty transceiver |
 | Monitor `node_health` stays `waiting`/`lost` with ECU `txFailed` rising | no ACK: CTX/CRX swapped, transceiver not powered at 3.3 V, Rs pin floating (high = standby), CANH/CANL swapped or open; re-run the 60 Ω check with power off |
 | `BUS_SILENT` while ECUs report `txOk` rising | monitor transceiver / CRX wiring (GPIO16) or Node 3 bus stub open |
 | Frames arrive but `CHECKSUM_ERROR` / `INVALID_DLC` without any demo fault | a node runs other firmware (e.g. the legacy sketch: IDs `0x201…0x210` show as *unsupported id*) |

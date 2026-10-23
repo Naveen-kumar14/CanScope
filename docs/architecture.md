@@ -54,8 +54,10 @@ Status event (every 1 s per node):
 {"type":"status","sourceNode":"node3","deviceTimeUs":1000,"busState":"stopped","driverRunning":false,
  "mode":"listen_only","txEnabled":false,"bitrate":0,"configStatus":"UNVERIFIED","txErrorCount":0,
  "rxErrorCount":0,"rxFrames":0,"txFrames":0,"txFailed":0,"rxMissed":0,"busErrors":0,
- "arbitrationLost":0,"busOffEvents":0}
+ "arbitrationLost":0,"busOffEvents":0,"transceiverCheck":"not_run"}
 ```
+
+Every field is required except `transceiverCheck` (added 2026-10-23; older firmware omits it, and the dashboard then shows "not reported"). A status line with a missing or mistyped counter is rejected as invalid by the dashboard; it is never read as zero.
 
 These examples are schema examples (`0x7A0` is an EXAMPLE ID). The contract is enforced from both sides: `test/firmware_host/test_raw_frame.cpp` asserts the encoder's exact output, and `dashboard/tests/serial-line-parser.test.ts` parses that same line.
 

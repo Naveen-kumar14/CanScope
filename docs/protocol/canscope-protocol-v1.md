@@ -154,7 +154,7 @@ ESP32 ROM boot messages are printed at 115200 baud, so they appear as a few inva
 | type | Sent by | When | Meaning |
 |---|---|---|---|
 | `hello` | all | boot, every 5 s, on `hello` | identity: node, role, firmware, `bootId` (random per boot), protocol versions, supported verbs |
-| `status` | all | every 1 s | own CAN controller: state, counters, mode, TX permission |
+| `status` | all | every 1 s | own CAN controller: state, counters, mode, TX permission, and `transceiverCheck` (start-up echo check: `ok`, `no_echo`, `rx_not_driven`, `rx_stuck_dominant`, `inconsistent`, `not_run`) |
 | `ack` | all | once per command line | `status`: `ok` / `rejected` / `unsupported` + `detail`, `id`, `command` |
 | `ecu_state` | node1, node2 | every 1 s and after every accepted command | **self-reported**: profile, demo fault, setpoints, values sent, TX ok/failed |
 | `frame` | monitor | every received frame (`frames off` stops it) | raw frame + `kind`, `check`, `accepted` |
