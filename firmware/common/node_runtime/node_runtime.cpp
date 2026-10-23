@@ -76,7 +76,7 @@ void NodeRuntime::print_alerts(uint32_t alerts) {
 }
 
 void NodeRuntime::print_status(const BusStatus& status) {
-  char line[384];
+  char line[640];  // worst case ~500 chars with 10-digit counters
   if (encode_status_json(cfg_.node_name, static_cast<uint64_t>(esp_timer_get_time()), cfg_, status,
                          line, sizeof(line))) {
     Serial.println(line);

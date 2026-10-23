@@ -88,9 +88,10 @@ void print_hello() {
 }
 
 void print_status() {
-  char line[384];
-  if (encode_status_json("monitor", now_us(), monitor_cfg::kCanConfig, can_ok ? bus : empty_bus_status(), line,
-                         sizeof(line))) {
+  char line[640];  // worst case ~500 chars with 10-digit counters
+  BusStatus s = can_ok ? bus : empty_bus_status();
+  s.transceiver_check = transport.transceiver_check();  // useful even when CAN did not start
+  if (encode_status_json("monitor", now_us(), monitor_cfg::kCanConfig, s, line, sizeof(line))) {
     Serial.println(line);
   }
 }
@@ -326,6 +327,8 @@ void setup() {
   }
   emit_init_result(can_init, transport.last_driver_error(), serial_sink, nullptr);
   can_ok = can_init == TransportResult::Ok;
+  Serial.printf("# CAN transceiver echo check: %s - %s\n", transceiver_check_name(transport.transceiver_check()),
+                transceiver_check_hint(transport.transceiver_check()));
 
   print_hello();
   print_selftest();

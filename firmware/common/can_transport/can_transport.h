@@ -10,6 +10,7 @@
 
 #include "can_config.h"
 #include "raw_frame.h"
+#include "transceiver_check.h"
 
 namespace canscope {
 
@@ -38,6 +39,7 @@ struct BusStatus {
   uint32_t bus_errors;
   uint32_t arb_lost;
   uint32_t bus_off_events;  // number of times bus-off was entered
+  TransceiverCheck transceiver_check;  // start-up echo check (transceiver_check.h)
 };
 
 BusStatus empty_bus_status();

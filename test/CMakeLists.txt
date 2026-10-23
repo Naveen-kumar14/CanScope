@@ -18,6 +18,7 @@ add_library(canscope_portable STATIC
   ${FW_COMMON}/frame_capture/raw_frame.cpp
   ${FW_COMMON}/frame_capture/json_writer.cpp
   ${FW_COMMON}/can_transport/can_transport.cpp
+  ${FW_COMMON}/can_transport/transceiver_check.cpp
   ${FW_COMMON}/protocol_decoder/protocol_registry.cpp
   ${FW_COMMON}/diagnostics/diagnostics.cpp
   ${FW_COMMON}/canscope_protocol/can_protocol.cpp

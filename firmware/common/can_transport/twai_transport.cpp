@@ -4,8 +4,11 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "driver/twai.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
 
 namespace canscope {
 
@@ -44,6 +47,53 @@ ControllerState to_controller_state(twai_state_t state) {
   return ControllerState::Unknown;
 }
 
+// Start-up echo check, before the driver owns the pins (see transceiver_check.h).
+// Each dominant pulse lasts about 6 us (3 bit times at 500 kbit/s): at most one
+// error frame for any node already on the bus. Never called in listen-only mode.
+TransceiverCheck run_echo_check(gpio_num_t tx, gpio_num_t rx) {
+  const uint16_t kIdleSamples = 64;
+  const uint16_t kPulses = 8;
+  TransceiverSamples s = {kIdleSamples, 0, 0, kPulses, 0, 0};
+  portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+
+  gpio_reset_pin(tx);
+  gpio_reset_pin(rx);
+  gpio_set_direction(tx, GPIO_MODE_OUTPUT);
+  gpio_set_level(tx, 1);  // recessive
+  gpio_set_direction(rx, GPIO_MODE_INPUT);
+
+  gpio_set_pull_mode(rx, GPIO_PULLUP_ONLY);
+  esp_rom_delay_us(50);
+  for (uint16_t i = 0; i < kIdleSamples; ++i) {
+    if (gpio_get_level(rx)) ++s.idle_high_pullup;
+    esp_rom_delay_us(10);
+  }
+  gpio_set_pull_mode(rx, GPIO_PULLDOWN_ONLY);
+  esp_rom_delay_us(50);
+  for (uint16_t i = 0; i < kIdleSamples; ++i) {
+    if (gpio_get_level(rx)) ++s.idle_high_pulldown;
+    esp_rom_delay_us(10);
+  }
+
+  gpio_set_pull_mode(rx, GPIO_PULLUP_ONLY);
+  esp_rom_delay_us(50);
+  for (uint16_t i = 0; i < kPulses; ++i) {
+    portENTER_CRITICAL(&mux);  // keep the dominant pulse short
+    gpio_set_level(tx, 0);
+    esp_rom_delay_us(6);
+    const bool low = gpio_get_level(rx) == 0;
+    gpio_set_level(tx, 1);
+    esp_rom_delay_us(6);
+    const bool high = gpio_get_level(rx) != 0;
+    portEXIT_CRITICAL(&mux);
+    if (low) ++s.low_when_tx_low;
+    if (high) ++s.high_when_tx_high;
+    esp_rom_delay_us(200);
+  }
+  gpio_set_pull_mode(rx, GPIO_FLOATING);
+  return classify_transceiver(s);
+}
+
 }  // namespace
 
 TwaiTransport::TwaiTransport()
@@ -66,6 +116,12 @@ TransportResult TwaiTransport::begin(const CanConfig& cfg) {
 
   twai_timing_config_t t_config;
   if (!timing_for(cfg.bitrate, t_config)) return TransportResult::ConfigInvalid;
+
+  // Listen-only must never drive the bus, not even for the echo check.
+  status_.transceiver_check =
+      cfg.mode == CanMode::ListenOnly
+          ? TransceiverCheck::NotRun
+          : run_echo_check(static_cast<gpio_num_t>(cfg.tx_gpio), static_cast<gpio_num_t>(cfg.rx_gpio));
 
   twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
       static_cast<gpio_num_t>(cfg.tx_gpio), static_cast<gpio_num_t>(cfg.rx_gpio),

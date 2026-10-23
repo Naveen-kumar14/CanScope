@@ -17,6 +17,7 @@ BusStatus empty_bus_status() {
   s.bus_errors = 0;
   s.arb_lost = 0;
   s.bus_off_events = 0;
+  s.transceiver_check = TransceiverCheck::NotRun;
   return s;
 }
 
@@ -72,6 +73,7 @@ size_t encode_status_json(const char* node_name, uint64_t device_time_us, const 
   w.field_u64("busErrors", status.bus_errors);
   w.field_u64("arbitrationLost", status.arb_lost);
   w.field_u64("busOffEvents", status.bus_off_events);
+  w.field_string("transceiverCheck", transceiver_check_name(status.transceiver_check));
   w.end_object();
   return w.finish();
 }

@@ -67,6 +67,8 @@ void EcuRuntime::setup() {
     const TransportResult result = transport_.begin(cfg_);
     emit_init_result(result, transport_.last_driver_error(), serial_sink, nullptr);
     can_ok_ = result == TransportResult::Ok;
+    Serial.printf("# CAN transceiver echo check: %s - %s\n", transceiver_check_name(transport_.transceiver_check()),
+                  transceiver_check_hint(transport_.transceiver_check()));
   }
   if (can_ok_ && !tx_permitted(cfg_)) {
     Serial.println("# WARNING: ENABLE_TX=false - this ECU will not put any frame on the bus");
@@ -198,8 +200,9 @@ void EcuRuntime::print_hello() {
 }
 
 void EcuRuntime::print_status() {
-  char line[384];
-  const BusStatus s = can_ok_ ? status_ : empty_bus_status();
+  char line[640];  // worst case ~500 chars with 10-digit counters
+  BusStatus s = can_ok_ ? status_ : empty_bus_status();
+  s.transceiver_check = transport_.transceiver_check();  // useful even when CAN did not start
   if (encode_status_json(cfg_.node_name, now_us(), cfg_, s, line, sizeof(line))) Serial.println(line);
 }
 

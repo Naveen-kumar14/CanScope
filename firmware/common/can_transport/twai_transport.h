@@ -26,6 +26,8 @@ class TwaiTransport : public CanTransport {
   uint32_t last_alerts() const { return last_alerts_; }
   bool recovery_pending() const { return recovery_pending_; }
   uint32_t recoveries() const { return recoveries_; }
+  // Result of the start-up echo check run by begin() (kept if begin() fails later).
+  TransceiverCheck transceiver_check() const { return status_.transceiver_check; }
 
  private:
   CanConfig cfg_;
