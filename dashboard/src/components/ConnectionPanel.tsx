@@ -2,8 +2,9 @@ import { useState } from 'react';
 
 import { formatAge } from '../lib/format';
 import { nodeLabel } from '../lib/protocol';
-import type { LinkInfo, PhysicalSnapshot } from '../lib/serial/physical-source';
+import type { ForgetResult, LinkInfo, PhysicalSnapshot } from '../lib/serial/physical-source';
 import type { PortState } from '../lib/serial/serial-link';
+import { StatusIcon, StatusLabel, type StatusTone } from './StatusIcon';
 
 interface Props {
   snapshot: PhysicalSnapshot;
@@ -11,11 +12,11 @@ interface Props {
   onAddPort: () => Promise<string | null>;
   onOpen: (id: string) => void;
   onClose: (id: string) => void;
-  onForget: (id: string) => void;
+  onForget: (id: string) => Promise<ForgetResult>;
   onOpenAll: () => void;
 }
 
-const STATE_TONE: Record<PortState, string> = {
+const STATE_TONE: Record<PortState, StatusTone> = {
   closed: 'muted',
   opening: 'warn',
   open: 'ok',
@@ -24,19 +25,32 @@ const STATE_TONE: Record<PortState, string> = {
   lost: 'bad',
 };
 
+function stateText(link: LinkInfo): string {
+  switch (link.state) {
+    case 'open': return 'Connected';
+    case 'opening': return 'Connecting…';
+    case 'closing': return 'Disconnecting…';
+    case 'closed': return 'Not connected';
+    case 'error': return 'Could not open';
+    case 'lost': return link.wantOpen ? 'Lost — reconnects when plugged in' : 'Lost';
+  }
+}
+
 const EXPECTED = ['node1', 'node2', 'monitor'] as const;
 /** Device lines arrive at least once per second; quieter than this is suspicious. */
 const LINK_QUIET_MS = 3000;
 
 export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, onForget, onOpenAll }: Props) {
   const [pickError, setPickError] = useState<string | null>(null);
+  const [forgetNotice, setForgetNotice] = useState<ForgetResult | null>(null);
+  const forget = async (id: string) => setForgetNotice(await onForget(id));
 
   if (!snapshot.supported) {
     return (
       <section className="card connection" aria-label="Serial connection" data-testid="connection-panel">
-        <h2>Physical connection</h2>
-        <p className="tone-bad" data-testid="serial-unsupported">
-          {snapshot.unsupportedReason} No data is shown and nothing is simulated.
+        <h2>USB serial connections</h2>
+        <p data-testid="serial-unsupported">
+          <StatusLabel tone="bad">{snapshot.unsupportedReason} No data is shown and nothing is simulated.</StatusLabel>
         </p>
       </section>
     );
@@ -47,11 +61,12 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
 
   return (
     <section className="card connection" aria-label="Serial connection" data-testid="connection-panel">
-      <div className="row-between">
-        <h2>Physical connection · USB serial</h2>
+      <div className="card-head">
+        <h2>USB serial connections</h2>
         <div className="row">
           <button
             type="button"
+            className="btn-primary"
             onClick={async () => setPickError(await onAddPort())}
             data-testid="add-port"
             title="Choose an ESP32 USB serial port (one per node)"
@@ -65,15 +80,31 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
           )}
         </div>
       </div>
-      {pickError && <p className="tone-warn small">Port not opened: {pickError}</p>}
+      <p className="card-intro">
+        The browser talks to each ESP32 directly (Web Serial, 460800 baud). A connected port proves only the USB link;
+        whether CAN works is shown on the Overview.
+      </p>
+      {pickError && (
+        <p className="small" role="alert">
+          <StatusLabel tone="warn">Port not opened: {pickError}</StatusLabel>
+        </p>
+      )}
+      {forgetNotice && (
+        <p className="small" role="status" data-testid="forget-notice">
+          <StatusLabel tone={forgetNotice.permission === 'revoked' ? 'ok' : forgetNotice.removed ? 'warn' : 'bad'}>
+            {forgetNotice.detail}
+          </StatusLabel>
+        </p>
+      )}
 
-      <ul className="expected-nodes" aria-label="Expected nodes">
+      <ul className="expected-nodes" aria-label="Expected boards">
         {EXPECTED.map((n) => {
           const link = openLinks.find((l) => l.node === n);
           const ok = !!link && !link.conflict;
           return (
-            <li key={n} className={ok ? 'tone-ok' : 'tone-muted'} data-testid={`expected-${n}`}>
-              {ok ? '●' : '○'} {nodeLabel(n)} {ok ? `on ${link.label}` : '— not connected'}
+            <li key={n} data-testid={`expected-${n}`}>
+              <StatusIcon tone={ok ? 'ok' : 'muted'} /> <strong>{nodeLabel(n)}</strong>{' '}
+              <span className="muted">{ok ? `on ${link.label}` : '— not connected'}</span>
             </li>
           );
         })}
@@ -87,7 +118,7 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
       ) : (
         <div className="link-grid">
           {snapshot.links.map((l) => (
-            <LinkCard key={l.id} link={l} nowMs={nowMs} onOpen={onOpen} onClose={onClose} onForget={onForget} />
+            <LinkCard key={l.id} link={l} nowMs={nowMs} onOpen={onOpen} onClose={onClose} onForget={(id) => void forget(id)} />
           ))}
         </div>
       )}
@@ -108,11 +139,10 @@ function LinkCard({ link, nowMs, onOpen, onClose, onForget }: LinkCardProps) {
   return (
     <article className="link-card" data-testid={`link-${link.id}`}>
       <header className="row-between">
-        <strong>{link.node ? nodeLabel(link.node) : 'Unidentified port'}</strong>
-        <span className={`pill tone-${STATE_TONE[link.state]}`}>
-          <span className="dot" aria-hidden="true" />
-          {link.state}
-        </span>
+        <h3>{link.node ? nodeLabel(link.node) : 'Unidentified port'}</h3>
+        <StatusLabel tone={STATE_TONE[link.state]} testId={`link-state-${link.id}`}>
+          {stateText(link)}
+        </StatusLabel>
       </header>
       <dl className="small">
         <dt>Port</dt>
@@ -140,7 +170,11 @@ function LinkCard({ link, nowMs, onOpen, onClose, onForget }: LinkCardProps) {
           </>
         )}
       </dl>
-      {link.conflict && <p className="tone-bad small">Conflict: {link.conflict}. Commands to this node are blocked.</p>}
+      {link.conflict && (
+        <p className="small">
+          <StatusLabel tone="bad">Conflict: {link.conflict}. Commands to this node are blocked.</StatusLabel>
+        </p>
+      )}
       {link.detail && link.state !== 'open' && <p className={`small tone-${STATE_TONE[link.state]}`}>{link.detail}</p>}
       <div className="row">
         {link.state === 'open' || link.state === 'opening' ? (
@@ -158,6 +192,7 @@ function LinkCard({ link, nowMs, onOpen, onClose, onForget }: LinkCardProps) {
             onClick={() => onForget(link.id)}
             data-testid={`forget-${link.id}`}
             title="Close this port and remove it from the dashboard; add it again with Add serial port…"
+            aria-label={`Forget ${link.label}`}
           >
             Forget port
           </button>

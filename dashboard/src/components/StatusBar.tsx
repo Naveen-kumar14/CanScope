@@ -1,15 +1,16 @@
 import type { ConnectionState } from '../lib/data-source';
 import type { DataOrigin } from '../types/events';
+import { StatusLabel, type StatusTone } from './StatusIcon';
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
-  idle: 'Idle',
+  idle: 'Not connected',
   connecting: 'Connecting…',
   connected: 'Connected',
   disconnected: 'Disconnected',
   error: 'Connection error',
 };
 
-const CONNECTION_TONE: Record<ConnectionState, string> = {
+const CONNECTION_TONE: Record<ConnectionState, StatusTone> = {
   idle: 'muted',
   connecting: 'warn',
   connected: 'ok',
@@ -21,33 +22,33 @@ interface Props {
   origin: DataOrigin;
   sourceLabel: string;
   connection: ConnectionState;
+  /** Physical mode: "2 of 3 boards" instead of a bare "Connected". */
+  boardsConnected?: number;
   children?: React.ReactNode;
 }
 
-export function StatusBar({ origin, sourceLabel, connection, children }: Props) {
+export function StatusBar({ origin, sourceLabel, connection, boardsConnected, children }: Props) {
+  const connectionText =
+    connection === 'connected' && boardsConnected !== undefined
+      ? `USB: ${boardsConnected} of 3 boards`
+      : CONNECTION_LABEL[connection];
   return (
     <header className="status-bar">
       <div className="brand">
         <h1>CANScope</h1>
-        <span
-          className="badge badge-readonly"
-          title="The dashboard never puts frames on the CAN bus. It only sends allow-listed text commands to a node over that node's USB port."
-        >
-          No raw CAN transmit · allow-listed USB commands only
-        </span>
+        <span className="brand-sub">CAN bus monitor · three-node ESP32 bench</span>
       </div>
       <div className="status-items">
         <span
-          className={`badge ${origin === 'mock' ? 'badge-mock' : 'badge-live'}`}
+          className={`badge ${origin === 'mock' ? 'badge-mock' : 'badge-source'}`}
           data-testid="data-origin"
+          title={sourceLabel}
         >
-          {origin === 'mock' ? 'MOCK DATA' : 'PHYSICAL · LIVE'}
+          {origin === 'mock' ? 'MOCK DATA' : 'PHYSICAL'}
         </span>
-        <span className={`pill tone-${CONNECTION_TONE[connection]}`} data-testid="connection-status">
-          <span className="dot" aria-hidden="true" />
-          {CONNECTION_LABEL[connection]}
+        <span data-testid="connection-status" role="status">
+          <StatusLabel tone={CONNECTION_TONE[connection]}>{connectionText}</StatusLabel>
         </span>
-        <span className="source-label">{sourceLabel}</span>
         {children}
       </div>
     </header>

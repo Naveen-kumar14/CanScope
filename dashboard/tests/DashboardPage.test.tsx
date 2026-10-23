@@ -5,10 +5,13 @@ import { DashboardPage } from '../src/pages/DashboardPage';
 import { FakeSource, frame, status } from './helpers';
 
 function setup(kind: 'mock' | 'live' = 'mock') {
+  window.history.replaceState(null, '', '/');  // the selected tab lives in the URL hash
   const source = new FakeSource(kind);
   const utils = render(<DashboardPage source={source} flushMs={0} />);
   return { source, ...utils };
 }
+
+const openTab = (id: string) => fireEvent.click(screen.getByTestId(`tab-${id}`));
 
 describe('DashboardPage', () => {
   beforeEach(() => {
@@ -19,11 +22,15 @@ describe('DashboardPage', () => {
 
   it('never offers raw CAN transmission, and a mock source has no command controls', () => {
     setup();
-    expect(screen.getByText(/No raw CAN transmit · allow-listed USB commands only/)).toBeInTheDocument();
+    expect(screen.getByText(/No raw CAN transmit from the dashboard · allow-listed USB commands only/)).toBeInTheDocument();
     // Without a physical node there is nothing to command: no decorative buttons.
+    openTab('faults');
     expect(screen.getByTestId('controls-unavailable')).toHaveTextContent('Unavailable with mock data');
     expect(screen.queryAllByRole('button')).toHaveLength(0);
-    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    // Only the keyboard skip link; mock mode has no Connections tab.
+    expect(screen.queryAllByRole('link').map((l) => l.textContent)).toEqual(['Skip to content']);
+    expect(screen.queryByTestId('tab-connections')).toBeNull();
+    openTab('traffic');
     expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('placeholder'))).toEqual(['e.g. 0x201']);
     expect(screen.getAllByRole('combobox')).toHaveLength(2); // node + time range
     expect(document.querySelectorAll('form')).toHaveLength(0);
@@ -37,7 +44,7 @@ describe('DashboardPage', () => {
 
   it('live source has no mock banner', () => {
     setup('live');
-    expect(screen.getByTestId('data-origin')).toHaveTextContent('PHYSICAL · LIVE');
+    expect(screen.getByTestId('data-origin')).toHaveTextContent('PHYSICAL');
     expect(screen.queryByTestId('mock-banner')).toBeNull();
   });
 
@@ -65,6 +72,9 @@ describe('DashboardPage', () => {
       source.emit(frame({ canId: '0x201', data: [0x01, 0xe0], dlc: 2 }));
       source.emit(status({ sourceNode: 'monitor', rxFrames: 2 }));
     });
+    openTab('traffic');
+    // Mock frames are never described as captured CAN traffic.
+    expect(screen.getByTestId('frames-intro')).toHaveTextContent('generated in the browser');
     const table = screen.getByTestId('frame-table');
     expect(within(table).getByText('0x7A0')).toBeInTheDocument();
     expect(within(table).getByText('AA 01')).toBeInTheDocument();
@@ -89,6 +99,7 @@ describe('DashboardPage', () => {
       source.emit(frame({ canId: '0x7A0' }));
       source.emit(frame({ canId: '0x201', data: [1, 0xe0] }));
     });
+    openTab('traffic');
     fireEvent.change(screen.getByPlaceholderText('e.g. 0x201'), { target: { value: '201' } });
     const table = screen.getByTestId('frame-table');
     expect(within(table).queryByText('0x7A0')).toBeNull();
@@ -103,10 +114,11 @@ describe('DashboardPage', () => {
       source.setConnection('connected');
       source.emit(status({ sourceNode: 'node3', driverRunning: false, busState: 'stopped', bitrate: 0, configStatus: 'UNVERIFIED' }));
     });
+    openTab('diagnostics');
     const card = screen.getByTestId('node-node3');
     expect(card).toHaveTextContent('not running');
-    expect(card).toHaveTextContent('UNVERIFIED');
-    expect(card).toHaveTextContent('TX disabled');
+    expect(card).toHaveTextContent('unverified');
+    expect(card).toHaveTextContent('TX off');
   });
 
   it('stale state after events stop', () => {
@@ -129,6 +141,7 @@ describe('DashboardPage', () => {
       source.setConnection('disconnected', 'Link lost');
     });
     expect(screen.getByTestId('state-disconnected')).toHaveTextContent('Link lost');
+    openTab('traffic');
     expect(screen.getByTestId('frame-table')).toBeInTheDocument();
   });
 

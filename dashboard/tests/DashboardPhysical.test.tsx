@@ -8,10 +8,13 @@ import { FakePort, FakeSerialApi, LINES, settle } from './fake-serial';
 
 const ECU_STATE_FAULT =
   '{"type":"ecu_state","sourceNode":"node1","deviceTimeUs":4,"bootId":"deadbeef","role":"motor_ecu","canRunning":true,"busState":"error_active","profile":"static","demoFault":"heartbeat_stop","setpoint":{"rpm":1500,"motorTempC":65.0},"sent":{"rpm":1500,"motorTempC":65.0},"telemetryFrames":10,"heartbeatFrames":2,"txOk":12,"txFailed":0,"rxIgnored":0}';
+const FAULTS_NONE =
+  '{"type":"faults","sourceNode":"monitor","deviceTimeUs":3,"bootId":"cafe0001","lastEventId":0,"count":0,"active":[],"truncated":false}';
 const STATUS_MONITOR =
   '{"type":"status","sourceNode":"monitor","deviceTimeUs":1,"busState":"error_active","driverRunning":true,"mode":"normal","txEnabled":false,"bitrate":500000,"configStatus":"WORKING_ASSUMPTION","txErrorCount":0,"rxErrorCount":0,"rxFrames":5,"txFrames":0,"txFailed":0,"rxMissed":0,"busErrors":0,"arbitrationLost":0,"busOffEvents":0}';
 
 async function setup() {
+  window.history.replaceState(null, '', '/');  // the selected tab lives in the URL hash
   const api = new FakeSerialApi();
   const source = new PhysicalSource(api, { tickMs: 1e9 });
   render(<DashboardPage source={source} physical={source} flushMs={0} />);
@@ -32,14 +35,19 @@ async function setup() {
   return { api, source, add, emit };
 }
 
+const openTab = (id: string) => fireEvent.click(screen.getByTestId(`tab-${id}`));
+
 describe('DashboardPage in physical mode', () => {
   it('starts idle with every node unconnected and every control disabled, never showing mock data', async () => {
     await setup();
-    expect(screen.getByTestId('data-origin')).toHaveTextContent('PHYSICAL · LIVE');
+    expect(screen.getByTestId('data-origin')).toHaveTextContent('PHYSICAL');
     expect(screen.queryByTestId('mock-banner')).toBeNull();
     expect(screen.getByTestId('state-idle')).toBeInTheDocument();
     expect(screen.getByTestId('observed-node1-unavailable')).toHaveTextContent('Node 3 (monitor) is not connected');
     expect(screen.getByTestId('faults-unavailable')).toHaveTextContent('fault detection status is unknown');
+    expect(screen.getByTestId('status-traffic')).toHaveTextContent('Unknown — Node 3 not connected');
+    expect(screen.getByTestId('finding-no-usb')).toBeInTheDocument();
+    openTab('faults');
     for (const n of ['node1', 'node2', 'monitor']) {
       expect(screen.getByTestId(`offline-${n}`)).toBeInTheDocument();
       const card = screen.getByTestId(`controls-${n}`);
@@ -86,7 +94,12 @@ describe('DashboardPage in physical mode', () => {
 
     await t.emit(mon, LINES.helloMonitor, STATUS_MONITOR);
     expect(screen.getByTestId('expect-node1-HEARTBEAT_LOST')).toHaveTextContent('not detected (yet)');
+    // No fault list yet: never a premature "no faults".
+    expect(screen.getByTestId('faults-waiting')).toBeInTheDocument();
+    expect(screen.getByTestId('status-faults')).toHaveTextContent('Waiting for Node 3’s fault list');
+    await t.emit(mon, FAULTS_NONE);
     expect(screen.getByTestId('faults-none')).toBeInTheDocument();
+    expect(screen.getByTestId('status-faults')).toHaveTextContent('None active');
 
     await t.emit(mon, LINES.fault(1, 'HEARTBEAT_LOST', 'node1', 'active'));
     expect(screen.getByTestId('expect-node1-HEARTBEAT_LOST')).toHaveTextContent('detected by Node 3');
@@ -147,5 +160,80 @@ describe('DashboardPage in physical mode', () => {
     expect(screen.getByTestId('serial-unsupported')).toHaveTextContent('nothing is simulated');
     expect(screen.getByTestId('state-error')).toHaveTextContent('Web Serial is not available');
     expect(screen.queryByTestId('mock-banner')).toBeNull();
+  });
+
+  it('separates USB from CAN: all ports open but no frame acknowledged is reported as a CAN wiring fault', async () => {
+    const t = await setup();
+    const [n1, n2, mon] = [new FakePort(), new FakePort(), new FakePort()];
+    for (const p of [n1, n2, mon]) await t.add(p);
+    const ecuStatus = (node: string) =>
+      STATUS_MONITOR.replace('"sourceNode":"monitor"', `"sourceNode":"${node}"`)
+        .replace('"busState":"error_active"', '"busState":"error_passive"')
+        .replace('"txEnabled":false', '"txEnabled":true')
+        .replace('"txErrorCount":0', '"txErrorCount":128')
+        .replace('"rxFrames":5', '"rxFrames":0')
+        .replace('"txFrames":0', '"txFrames":8')
+        .replace('"txFailed":0', '"txFailed":42');
+    await t.emit(n1, LINES.helloNode1, ecuStatus('node1'));
+    await t.emit(n2, LINES.helloNode2, ecuStatus('node2'));
+    await t.emit(mon, LINES.helloMonitor, STATUS_MONITOR.replace('"rxFrames":5', '"rxFrames":0'));
+
+    expect(screen.getByTestId('status-usb')).toHaveTextContent('3 of 3 connected');
+    expect(screen.getByTestId('status-traffic')).toHaveTextContent('No CAN traffic received');
+    expect(screen.getByTestId('status-bus')).toHaveTextContent('Error passive');
+    expect(screen.getByTestId('finding-no-ack')).toHaveTextContent('Frames are not acknowledged on the CAN bus');
+    expect(screen.getByTestId('finding-no-ack')).toHaveTextContent('Node 3 has received 0 frame(s)');
+    expect(screen.queryByTestId('finding-healthy')).toBeNull();
+    expect(screen.getByTestId('connection-status')).toHaveTextContent('USB: 3 of 3 boards');
+  });
+
+  it('when Node 3 is unplugged, the fault list becomes unknown and a requested fault is not shown as detected', async () => {
+    const t = await setup();
+    const ecu = new FakePort();
+    const mon = new FakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 });
+    await t.add(ecu);
+    await t.add(mon);
+    await t.emit(ecu, LINES.helloNode1, ECU_STATE_FAULT);
+    await t.emit(mon, LINES.helloMonitor, STATUS_MONITOR, LINES.fault(1, 'HEARTBEAT_LOST', 'node1', 'active'));
+    expect(screen.getByTestId('expect-node1-HEARTBEAT_LOST')).toHaveTextContent('detected by Node 3');
+
+    await act(async () => {
+      mon.unplug();
+      t.api.fire('disconnect', mon);
+      await settle();
+    });
+    expect(screen.queryByTestId('faults-none')).toBeNull();
+    expect(screen.getByTestId('faults-unavailable')).toHaveTextContent('fault detection status is unknown');
+    expect(screen.getByTestId('expect-node1-HEARTBEAT_LOST')).toHaveTextContent('unknown — Node 3 not connected');
+    expect(screen.getByTestId('status-faults')).toHaveTextContent('Unknown');
+  });
+
+  it('supports keyboard navigation between tabs', async () => {
+    await setup();
+    const overview = screen.getByTestId('tab-overview');
+    expect(overview).toHaveAttribute('aria-selected', 'true');
+    expect(overview).toHaveAttribute('tabindex', '0');
+    expect(screen.getByTestId('tab-traffic')).toHaveAttribute('tabindex', '-1');
+    overview.focus();
+    fireEvent.keyDown(overview, { key: 'ArrowRight' });
+    expect(screen.getByTestId('tab-traffic')).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(screen.getByTestId('tab-traffic'));
+    fireEvent.keyDown(screen.getByTestId('tab-traffic'), { key: 'End' });
+    expect(screen.getByTestId('tab-diagnostics')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'tab-diagnostics');
+    fireEvent.keyDown(screen.getByTestId('tab-diagnostics'), { key: 'ArrowRight' });
+    expect(screen.getByTestId('tab-overview')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('tells the user whether forgetting a port revoked the browser permission', async () => {
+    const t = await setup();
+    const stray = new FakePort();
+    await t.add(stray);
+    const id = t.source.getSnapshot().links[0].id;
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`forget-${id}`));
+      await settle();
+    });
+    expect(screen.getByTestId('forget-notice')).toHaveTextContent('Removed and serial permission revoked.');
   });
 });

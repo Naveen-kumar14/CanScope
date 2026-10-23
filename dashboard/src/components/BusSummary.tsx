@@ -27,11 +27,11 @@ export function BusSummary({ busState, frameRate, counters, bufferedFrames, drop
         </span>
       </div>
       <div className="metric">
-        <span className="metric-label">RX (node counters)</span>
+        <span className="metric-label">RX frames (sum of all boards)</span>
         <span className="metric-value" data-testid="counter-rx">{counters.rx}</span>
       </div>
       <div className="metric">
-        <span className="metric-label">TX</span>
+        <span className="metric-label">TX frames (sum)</span>
         <span className="metric-value" data-testid="counter-tx">{counters.tx}</span>
       </div>
       <div className="metric">
