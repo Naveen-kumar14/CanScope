@@ -11,6 +11,9 @@
 // - drop duplicate fault events (bootId + eventId)
 // - reopen a port that was unplugged while the user wanted it open
 // - forget unidentified ports on request and never re-list them on their own
+// - start fresh: every connect() begins with no ports listed. Ports granted in
+//   an earlier session keep their browser permission (they are pre-selected in
+//   the picker) but are never listed or opened until the user picks them again
 
 import type { CanDataSource, ConnectionState, DataSourceHandlers } from '../data-source';
 import { SERIAL } from '../protocol-spec.generated';
@@ -89,8 +92,6 @@ export class PhysicalSource implements CanDataSource {
   private readonly tracker: CommandTracker;
   private handlers: DataSourceHandlers | null = null;
   private entries: LinkEntry[] = [];
-  /** Ports the user forgot; only an explicit pick in addPort() brings one back. */
-  private forgotten = new WeakSet<SerialPortLike>();
   private nextLinkId = 1;
   private timer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<() => void>();
@@ -121,6 +122,7 @@ export class PhysicalSource implements CanDataSource {
 
   connect(handlers: DataSourceHandlers): void {
     this.handlers = handlers;
+    this.resetSession();
     if (!this.api) {
       this.setConnection(
         'error',
@@ -133,7 +135,7 @@ export class PhysicalSource implements CanDataSource {
     this.api.addEventListener('disconnect', this.onUsbDisconnect);
     this.timer = setInterval(() => this.tick(), this.tickMs);
     this.setConnection('idle', 'No serial port open. Add a port to connect to a CANScope node.');
-    void this.refreshGrantedPorts();
+    this.publish();
   }
 
   disconnect(): void {
@@ -143,11 +145,14 @@ export class PhysicalSource implements CanDataSource {
       this.api.removeEventListener('connect', this.onUsbConnect);
       this.api.removeEventListener('disconnect', this.onUsbDisconnect);
     }
-    for (const e of this.entries) {
+    const old = this.entries;
+    this.entries = [];  // stale entries ignore anything they report while closing
+    for (const e of old) {
       e.info.wantOpen = false;
       void e.link.close();
     }
     this.handlers = null;
+    this.publish();
   }
 
   // ------------------------------------------------------------- UI surface
@@ -168,7 +173,6 @@ export class PhysicalSource implements CanDataSource {
     } catch (e) {
       return explainOpenError(e);
     }
-    this.forgotten.delete(port);
     const entry = this.entryForPort(port) ?? this.addEntry(port);
     await this.openLink(entry.info.id);
     return null;
@@ -205,7 +209,6 @@ export class PhysicalSource implements CanDataSource {
     }
     e.info.wantOpen = false;
     this.entries = this.entries.filter((x) => x !== e);
-    this.forgotten.add(e.port);
     this.updateConflicts();
     this.updateConnection();
     this.publish();
@@ -221,7 +224,7 @@ export class PhysicalSource implements CanDataSource {
       await e.port.forget();
       return { removed: true, permission: 'revoked', detail: 'Removed and serial permission revoked.' };
     } catch (err) {
-      // The in-memory guard still keeps it out of this session.
+      // Unlisted ports are never re-added on their own, so it stays out of this session.
       return {
         removed: true,
         permission: 'failed',
@@ -275,25 +278,20 @@ export class PhysicalSource implements CanDataSource {
 
   // ---------------------------------------------------------------- internals
 
-  private async refreshGrantedPorts(): Promise<void> {
-    if (!this.api) return;
-    try {
-      const ports = await this.api.getPorts();
-      for (const p of ports) if (!this.forgotten.has(p) && !this.entryForPort(p)) this.addEntry(p);
-      this.publish();
-    } catch {
-      /* permission state unavailable: the user can still add a port */
-    }
+  /** Drops everything from an earlier session; browser permissions are left alone. */
+  private resetSession(): void {
+    this.entries = [];
+    this.connection = 'idle';
+    this.everConnected = false;
+    this.seenFaults.clear();
+    this.seenOrder = [];
   }
 
+  /** Only ports picked in this session are tracked; any other port plugged in is ignored. */
   private onUsbConnect = (event: Event) => {
     const port = (event.target ?? (event as unknown as { port?: SerialPortLike }).port) as SerialPortLike | null;
-    if (!port || typeof (port as SerialPortLike).open !== 'function') {
-      void this.refreshGrantedPorts();
-      return;
-    }
-    if (this.forgotten.has(port)) return;
-    const entry = this.entryForPort(port) ?? this.addEntry(port);
+    const entry = port ? this.entryForPort(port) : undefined;
+    if (!entry) return;
     entry.info.diagnostics = this.pushDiag(entry.info.diagnostics, 'USB device connected');
     if (entry.info.wantOpen) void this.openLink(entry.info.id);
     this.publish();

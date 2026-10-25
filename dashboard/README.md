@@ -15,7 +15,7 @@ npm run check        # all of the above
 ## Physical mode (default)
 
 1. Close any other serial monitor using the boards.
-2. On the **Connections** tab, press **Add serial port…** and pick the port of one board. Repeat for Node 1, Node 2 and Node 3. Ports are identified by each board's `hello` / `status` lines, never by order. The browser remembers granted ports, so later **Connect known ports** reopens them. A port that is unplugged while connected is reopened when it comes back.
+2. On the **Connections** tab, press **Add serial port…** and pick the port of one board. Repeat for Node 1, Node 2 and Node 3. Ports are identified by each board's `hello` / `status` lines, never by order. Every dashboard start (or reload) begins fresh: no port is listed or opened automatically, so pick the three boards again. The browser keeps its permission for ports you granted before, so they are quick to pick, and **Forget port** is the only thing that revokes it. Within a session, **Reconnect closed ports** reopens ports you disconnected. A port that is unplugged while connected is reopened when it comes back.
 3. Speed: 460800 baud (`protocol/canscope_protocol.json`, `serial.baud`).
 
 The page has five tabs:

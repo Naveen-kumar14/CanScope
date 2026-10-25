@@ -89,7 +89,7 @@ npm run dev            # open http://localhost:5173 in Chrome or Edge
 
 1. *Data source* must say **Physical (USB serial)**. Physical mode never shows mock data. If Web Serial is missing, the page shows an error instead.
 2. Open the **Connections** tab, press **Add serial port…**, pick one board's port, and repeat for each board. Each card becomes *Node 1 – Motor ECU*, *Node 2 – Battery ECU* or *Node 3 – CANScope Monitor* from what the board itself reports, not from the order you added them.
-3. The browser remembers granted ports. Next time, use **Connect known ports**. A port that is unplugged while connected is reopened automatically when it comes back.
+3. Every dashboard start begins fresh: no port is listed or opened automatically, so pick the three boards again with **Add serial port…**. The browser keeps its permission for previously granted ports (only **Forget port** revokes it). Within a session, **Reconnect closed ports** reopens ports you disconnected, and a port that is unplugged while connected is reopened automatically when it comes back.
 
 | Card shows | Meaning |
 |---|---|

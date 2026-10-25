@@ -52,16 +52,58 @@ describe('PhysicalSource', () => {
     s.disconnect();
   });
 
-  it('lists previously granted ports without opening them, and opens on request', async () => {
+  it('starts fresh: previously granted ports are neither listed nor opened, even when replugged', async () => {
     const port = new FakePort();
     const t = setup({ granted: [port] });
     await settle();
-    expect(t.source.getSnapshot().links).toHaveLength(1);
-    expect(t.source.getSnapshot().links[0]).toMatchObject({ state: 'closed', label: 'CP210x 10C4:EA60', node: null });
+    expect(t.source.getSnapshot().links).toEqual([]);
+    t.api.fire('connect', port);
+    await settle();
+    expect(t.source.getSnapshot().links).toEqual([]);
     expect(port.opened).toBe(0);
+    expect(port.forgotten).toBe(0); // the browser permission is kept
+    expect(t.connection.at(-1)).toMatch(/^idle/);
+
+    expect(await t.add(port)).toBeNull();
+    expect(t.source.getSnapshot().links[0]).toMatchObject({ state: 'open', label: 'CP210x 10C4:EA60' });
+  });
+
+  it('clears the previous session on disconnect + connect and reopens nothing', async () => {
+    const t = setup();
+    const port = new FakePort();
+    await t.add(port);
+    port.emit(`${LINES.helloNode1}
+`);
+    await settle();
+    expect(t.source.getSnapshot().links[0]).toMatchObject({ state: 'open', node: 'node1' });
+
+    t.source.disconnect();
+    await settle();
+    expect(t.source.getSnapshot().links).toEqual([]);
+    expect(port.isOpen).toBe(false);
+    expect(port.forgotten).toBe(0);
+
+    const connection: string[] = [];
+    t.source.connect({ onEvent: () => {}, onConnectionChange: (s) => connection.push(s) });
+    t.api.fire('connect', port);
+    await settle();
+    expect(t.source.getSnapshot().links).toEqual([]);
+    expect(port.opened).toBe(1);
+    expect(connection.at(-1)).toBe('idle');
+    t.source.disconnect();
+  });
+
+  it('reopens ports closed earlier in the same session on request', async () => {
+    const t = setup();
+    const port = new FakePort();
+    await t.add(port);
+    const id = t.source.getSnapshot().links[0].id;
+    await t.source.closeLink(id);
+    await settle();
+    expect(t.source.getSnapshot().links[0].state).toBe('closed');
     await t.source.openAllKnown();
     await settle();
-    expect(port.opened).toBe(1);
+    expect(port.opened).toBe(2);
     expect(t.connection.at(-1)).toMatch(/^connected/);
   });
 
@@ -337,7 +379,9 @@ describe('PhysicalSource', () => {
 
     it('forgets closed and lost ports', async () => {
       const closed = new FakePort();
-      const t = setup({ granted: [closed] });
+      const t = setup();
+      await t.add(closed);
+      await t.source.closeLink(t.source.getSnapshot().links[0].id);
       await settle();
       const lost = new FakePort();
       await t.add(lost);
@@ -349,7 +393,7 @@ describe('PhysicalSource', () => {
       expect((await t.source.forgetPort(a.id)).removed).toBe(true);
       expect((await t.source.forgetPort(b.id)).removed).toBe(true);
       expect(t.source.getSnapshot().links).toEqual([]);
-      expect(closed.opened).toBe(0);
+      expect(closed.opened).toBe(1);
     });
 
     it('releases a port that finishes opening after it was forgotten', async () => {
@@ -378,8 +422,8 @@ describe('PhysicalSource', () => {
 
     it('does not re-list a forgotten port until the user picks it again', async () => {
       const port = new FakePort();
-      const t = setup({ granted: [port] });
-      await settle();
+      const t = setup();
+      await t.add(port);
       const id = t.source.getSnapshot().links[0].id;
       await t.source.forgetPort(id);
 
@@ -388,7 +432,7 @@ describe('PhysicalSource', () => {
       t.api.fire('connect', { target: null } as unknown as FakePort); // triggers getPorts()
       await settle();
       expect(t.source.getSnapshot().links).toEqual([]);
-      expect(port.opened).toBe(0);
+      expect(port.opened).toBe(1);
 
       expect(await t.add(port)).toBeNull();
       const again = t.source.getSnapshot().links;

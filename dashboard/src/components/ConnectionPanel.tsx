@@ -75,7 +75,7 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
           </button>
           {closedKnown.length > 0 && (
             <button type="button" onClick={onOpenAll} data-testid="open-all">
-              Connect known ports ({closedKnown.length})
+              Reconnect closed ports ({closedKnown.length})
             </button>
           )}
         </div>
@@ -112,8 +112,9 @@ export function ConnectionPanel({ snapshot, nowMs, onAddPort, onOpen, onClose, o
 
       {snapshot.links.length === 0 ? (
         <p className="muted" data-testid="no-ports">
-          No serial port granted yet. Plug in a CANScope node, press <strong>Add serial port…</strong> and pick its
-          port (CP210x / CH340). Repeat for each node; ports are identified by what the board reports, not by order.
+          No serial port connected in this session. Plug in a CANScope node, press <strong>Add serial port…</strong> and
+          pick its port (CP210x / CH340). Repeat for each node; ports are identified by what the board reports, not by
+          order. Ports used before stay allowed in the browser, but every start begins fresh.
         </p>
       ) : (
         <div className="link-grid">
