@@ -327,8 +327,7 @@ void setup() {
   }
   emit_init_result(can_init, transport.last_driver_error(), serial_sink, nullptr);
   can_ok = can_init == TransportResult::Ok;
-  Serial.printf("# CAN transceiver echo check: %s - %s\n", transceiver_check_name(transport.transceiver_check()),
-                transceiver_check_hint(transport.transceiver_check()));
+  emit_transceiver_check(transport.transceiver_check(), serial_sink, nullptr);
 
   print_hello();
   print_selftest();

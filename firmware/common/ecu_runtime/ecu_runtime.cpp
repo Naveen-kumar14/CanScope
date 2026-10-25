@@ -67,8 +67,7 @@ void EcuRuntime::setup() {
     const TransportResult result = transport_.begin(cfg_);
     emit_init_result(result, transport_.last_driver_error(), serial_sink, nullptr);
     can_ok_ = result == TransportResult::Ok;
-    Serial.printf("# CAN transceiver echo check: %s - %s\n", transceiver_check_name(transport_.transceiver_check()),
-                  transceiver_check_hint(transport_.transceiver_check()));
+    emit_transceiver_check(transport_.transceiver_check(), serial_sink, nullptr);
   }
   if (can_ok_ && !tx_permitted(cfg_)) {
     Serial.println("# WARNING: ENABLE_TX=false - this ECU will not put any frame on the bus");

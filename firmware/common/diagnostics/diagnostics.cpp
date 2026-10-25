@@ -73,4 +73,11 @@ void emit_init_result(TransportResult result, int driver_error, LineSink sink, v
   sink(line, ctx);
 }
 
+void emit_transceiver_check(TransceiverCheck check, LineSink sink, void* ctx) {
+  char line[224];  // longest hint + prefix, with room to spare (host-tested)
+  snprintf(line, sizeof(line), "# CAN transceiver echo check: %s - %s", transceiver_check_name(check),
+           transceiver_check_hint(check));
+  sink(line, ctx);
+}
+
 }  // namespace canscope

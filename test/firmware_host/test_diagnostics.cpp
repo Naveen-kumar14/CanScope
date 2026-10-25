@@ -48,5 +48,19 @@ int main() {
     emit_init_result(TransportResult::DriverInstallFailed, 259, collect, &out);
     CHECK(out == "# CAN init: FAILED (driver_install_failed, driver error 259)\n");
   }
+  {  // Echo check line: the exact prefix operators look for, and no hint is ever truncated.
+    std::string out;
+    emit_transceiver_check(TransceiverCheck::NoEcho, collect, &out);
+    CHECK(out.compare(0, 40, "# CAN transceiver echo check: no_echo - ") == 0);
+    const TransceiverCheck all[] = {TransceiverCheck::NotRun,          TransceiverCheck::Ok,
+                                    TransceiverCheck::RxNotDriven,     TransceiverCheck::RxStuckDominant,
+                                    TransceiverCheck::NoEcho,          TransceiverCheck::Inconsistent};
+    for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
+      std::string line;
+      emit_transceiver_check(all[i], collect, &line);
+      CHECK(line == std::string("# CAN transceiver echo check: ") + transceiver_check_name(all[i]) + " - " +
+                        transceiver_check_hint(all[i]) + "\n");
+    }
+  }
   TEST_MAIN_END();
 }

@@ -25,4 +25,7 @@ void emit_banner(const BannerInfo& info, const CanConfig& cfg, const ConfigValid
 
 void emit_init_result(TransportResult result, int driver_error, LineSink sink, void* ctx);
 
+// "# CAN transceiver echo check: <name> - <hint>" (names: transceiver_check.h).
+void emit_transceiver_check(TransceiverCheck check, LineSink sink, void* ctx);
+
 }  // namespace canscope

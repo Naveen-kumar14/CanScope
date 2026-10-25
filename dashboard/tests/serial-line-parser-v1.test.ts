@@ -68,6 +68,22 @@ describe('parseSerialLine: CAN frame and status validation', () => {
   const frame = (fields: string) =>
     `{"type":"frame","sourceNode":"monitor","deviceTimeUs":1,${fields},"busState":"error_active"}`;
 
+  it('reads the transceiver echo check from status lines, and the banner line only as a diagnostic', () => {
+    const status = (check: string | null) =>
+      check === null ? STATUS.replace(',"transceiverCheck":"no_echo"', '') : STATUS.replace('"no_echo"', `"${check}"`);
+    for (const c of ['not_run', 'ok', 'rx_not_driven', 'rx_stuck_dominant', 'no_echo', 'inconsistent']) {
+      expect(ev(status(c))).toMatchObject({ type: 'status', transceiverCheck: c });
+    }
+    // Firmware built before the echo check sends no field: accepted, shown as "not reported".
+    expect(ev(status(null))).toMatchObject({ type: 'status', transceiverCheck: null });
+    expect(bad(status('maybe'))).toMatchObject({ reason: 'status: bad transceiverCheck' });
+
+    // Banner line as emit_transceiver_check() prints it: a diagnostic, never an event.
+    const banner =
+      '# CAN transceiver echo check: no_echo - RX does not follow TX: Rs pin high or floating (standby; tie Rs to GND), TX->D wire open or on the wrong GPIO, or TX/RX swapped';
+    expect(parseSerialLine(banner, at, 'live', 'port1')).toEqual({ kind: 'diagnostic', text: banner.slice(2) });
+  });
+
   it('accepts classical CAN frames whose payload matches the DLC', () => {
     expect(ev(frame('"canId":"0x7FF","identifierFormat":"standard","remote":false,"dlc":0,"data":[]'))).toMatchObject({ dlc: 0 });
     expect(ev(frame('"canId":"0x1FFFFFFF","identifierFormat":"extended","remote":false,"dlc":1,"data":[5]'))).toMatchObject({
