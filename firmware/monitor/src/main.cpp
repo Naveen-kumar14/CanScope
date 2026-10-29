@@ -4,8 +4,8 @@
 // protocol v1 traffic, and detects faults on its own (heartbeat loss, stale
 // telemetry, bad DLC/checksum/counter/values, protocol version, thresholds,
 // own bus-off / error passive / RX overrun, silent bus). Reports to the
-// dashboard over USB serial and locally on the SSD1306 OLED, three LEDs and
-// (when enabled) the buzzer. It never transmits an application frame.
+// dashboard over USB serial and locally on the SSD1306 OLED and the status
+// LEDs. It has no buttons and no buzzer. It never transmits an application frame.
 //
 // Decisions are made in portable, host-tested code (monitor_core, monitor_ui,
 // monitor_json); this file only moves data between them and the hardware.
@@ -42,9 +42,7 @@ TwaiTransport transport;
 MonitorCore core;
 LineAssembler lines;
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
-Button button_a;
-Button button_b;
-Buzzer buzzer;
+CommandedFaults commanded;  // OLED only; MonitorCore never sees it
 
 bool can_ok = false;
 TransportResult can_init = TransportResult::NotStarted;
@@ -53,9 +51,6 @@ char boot_id[9];
 bool frames_out = true;
 uint8_t oled_addr = 0;
 bool oled_ok = false;
-uint8_t page = 0;
-bool button_a_stuck = false;
-bool button_b_stuck = false;
 uint32_t boot_ms = 0;
 uint32_t last_status_ms = 0;
 uint32_t last_hello_ms = 0;
@@ -63,9 +58,8 @@ uint32_t last_oled_ms = 0;
 uint32_t last_oled_probe_ms = 0;
 uint32_t last_tel_event_ms[3] = {0, 0, 0};
 uint32_t tel_count_at_event[3] = {0, 0, 0};
-uint32_t alarm_seen_event = 0;
 
-const char kCommands[] = "hello status help recover faults frames silence";
+const char kCommands[] = "hello status help recover faults frames display";
 
 uint64_t now_us() { return static_cast<uint64_t>(esp_timer_get_time()); }
 
@@ -122,18 +116,14 @@ void print_selftest() {
   }
   snprintf(line, sizeof(line),
            "{\"type\":\"selftest\",\"sourceNode\":\"monitor\",\"deviceTimeUs\":%llu,\"bootId\":\"%s\","
-           "\"can\":\"%s\",\"oled\":\"%s\",\"buttonA\":\"%s\",\"buttonB\":\"%s\",\"buzzer\":\"%s\","
-           "\"leds\":\"driven (visual check required)\"}",
-           static_cast<unsigned long long>(now_us()), boot_id, transport_result_name(can_init), oled,
-           button_a_stuck ? "pressed_at_boot" : "released", button_b_stuck ? "pressed_at_boot" : "released",
-           MONITOR_BUZZER_ENABLED ? "enabled" : "disabled_by_build (gate G10)");
+           "\"can\":\"%s\",\"oled\":\"%s\",\"leds\":\"driven (visual check required)\"}",
+           static_cast<unsigned long long>(now_us()), boot_id, transport_result_name(can_init), oled);
   Serial.println(line);
 }
 
 void on_fault(const FaultEvent& e, void*) {
   char line[512];
   if (encode_fault_event(e, boot_id, now_us(), line, sizeof(line))) Serial.println(line);
-  if (e.active && proto::fault_info(e.code).severity == proto::Severity::Warning) buzzer.chirp(millis());
 }
 
 // ------------------------------------------------------------- peripherals
@@ -179,10 +169,9 @@ void oled_init() {
 void oled_draw(uint32_t now) {
   if (!oled_ok) return;
   OledInput in = {&core, core.monitoring(), can_ok ? bus.state : BusState::Stopped, bus.tx_error_counter,
-                  bus.rx_error_counter, bus.rx_missed, (now - boot_ms) / 1000, MONITOR_BUZZER_ENABLED != 0,
-                  buzzer.silenced(), now};
+                  bus.rx_error_counter, bus.rx_missed, (now - boot_ms) / 1000, now, &commanded};
   OledLines out;
-  render_oled_page(page, in, out);
+  render_oled_page(oled_page_for(now - boot_ms, commanded.any()), in, out);
   display.clearDisplay();
   for (size_t r = 0; r < kOledRows; ++r) {
     display.setCursor(0, static_cast<int16_t>(r * 8));
@@ -192,17 +181,11 @@ void oled_draw(uint32_t now) {
 }
 
 void set_leds(const LedState& s) {
+#if MONITOR_LED_GREEN_GPIO >= 0
   digitalWrite(MONITOR_LED_GREEN_GPIO, s.green ? HIGH : LOW);
+#endif
   digitalWrite(MONITOR_LED_YELLOW_GPIO, s.yellow ? HIGH : LOW);
   digitalWrite(MONITOR_LED_RED_GPIO, s.red ? HIGH : LOW);
-}
-
-void set_buzzer(bool on) {
-#if MONITOR_BUZZER_ENABLED
-  digitalWrite(MONITOR_BUZZER_GPIO, on ? HIGH : LOW);
-#else
-  (void)on;
-#endif
 }
 
 bool request_recovery(const char** why) {
@@ -246,7 +229,8 @@ void handle_line(const char* line, uint32_t now) {
     print_health(now);
     ack(cmd.id, text, AckStatus::Ok, "fault snapshot sent");
   } else if (strcmp(cmd.verb, "help") == 0) {
-    ack(cmd.id, text, AckStatus::Ok, "hello | status | faults | frames on|off | silence | recover");
+    ack(cmd.id, text, AckStatus::Ok,
+        "hello | status | faults | frames on|off | recover | display fault <ecu> <fault>|clear [<ecu>]");
   } else if (strcmp(cmd.verb, "frames") == 0) {
     if (cmd.argc == 1 && (strcmp(cmd.args[0], "on") == 0 || strcmp(cmd.args[0], "off") == 0)) {
       frames_out = strcmp(cmd.args[0], "on") == 0;
@@ -254,15 +238,16 @@ void handle_line(const char* line, uint32_t now) {
     } else {
       ack(cmd.id, text, AckStatus::Rejected, "usage: frames on|off");
     }
-  } else if (strcmp(cmd.verb, "silence") == 0) {
-    buzzer.silence();
-    ack(cmd.id, text, AckStatus::Ok,
-        MONITOR_BUZZER_ENABLED ? "buzzer silenced until the next new critical fault"
-                               : "buzzer is disabled in this build; alarm state acknowledged");
   } else if (strcmp(cmd.verb, "recover") == 0) {
     const char* why = "";
     const bool ok = request_recovery(&why);
     ack(cmd.id, text, ok ? AckStatus::Ok : AckStatus::Rejected, why);
+  } else if (strcmp(cmd.verb, "display") == 0) {
+    // What the dashboard says it commanded on an ECU: shown on the OLED only.
+    const char* detail = "";
+    const AckStatus status = apply_display_command(commanded, cmd, &detail);
+    if (status == AckStatus::Ok) last_oled_ms = 0;  // redraw now
+    ack(cmd.id, text, status, detail);
   } else if (strcmp(cmd.verb, "set") == 0 || strcmp(cmd.verb, "fault") == 0 || strcmp(cmd.verb, "profile") == 0) {
     ack(cmd.id, text, AckStatus::Unsupported, "ECU command: send it to Node 1 or Node 2, not the monitor");
   } else {
@@ -273,17 +258,13 @@ void handle_line(const char* line, uint32_t now) {
 }  // namespace
 
 void setup() {
-  // Safe output states first: LEDs off; buzzer pin untouched unless enabled.
+  // Safe output states first: LEDs off. No other GPIO is configured.
+#if MONITOR_LED_GREEN_GPIO >= 0
   pinMode(MONITOR_LED_GREEN_GPIO, OUTPUT);
+#endif
   pinMode(MONITOR_LED_YELLOW_GPIO, OUTPUT);
   pinMode(MONITOR_LED_RED_GPIO, OUTPUT);
   set_leds(LedState{false, false, false});
-#if MONITOR_BUZZER_ENABLED
-  pinMode(MONITOR_BUZZER_GPIO, OUTPUT);
-  digitalWrite(MONITOR_BUZZER_GPIO, LOW);
-#endif
-  pinMode(MONITOR_BUTTON_A_GPIO, INPUT_PULLUP);
-  pinMode(MONITOR_BUTTON_B_GPIO, INPUT_PULLUP);
 
   Serial.setRxBufferSize(512);
   Serial.setTxBufferSize(4096);
@@ -296,26 +277,15 @@ void setup() {
   emit_banner(kBanner, monitor_cfg::kCanConfig, validation, serial_sink, nullptr);
   Serial.printf("# boot %s  serial %lu baud  protocol v%u\n", boot_id, static_cast<unsigned long>(proto::kSerialBaud),
                 proto::kProtocolVersion);
-  Serial.printf("# pins [PROVISIONAL, ledger]: OLED SDA %d SCL %d | LED G %d Y %d R %d | BTN A %d B %d | BUZ %d (%s)\n",
+  Serial.printf("# pins [PROVISIONAL, ledger]: OLED SDA %d SCL %d | LED G %d (-1 = none) Y %d R %d\n",
                 MONITOR_I2C_SDA_GPIO, MONITOR_I2C_SCL_GPIO, MONITOR_LED_GREEN_GPIO, MONITOR_LED_YELLOW_GPIO,
-                MONITOR_LED_RED_GPIO, MONITOR_BUTTON_A_GPIO, MONITOR_BUTTON_B_GPIO, MONITOR_BUZZER_GPIO,
-                MONITOR_BUZZER_ENABLED ? "enabled" : "DISABLED: gate G10 open");
+                MONITOR_LED_RED_GPIO);
 
   Wire.begin(MONITOR_I2C_SDA_GPIO, MONITOR_I2C_SCL_GPIO);
   Wire.setClock(400000);
   oled_init();
 
   const uint32_t now = millis();
-  const bool a_low = digitalRead(MONITOR_BUTTON_A_GPIO) == LOW;
-  const bool b_low = digitalRead(MONITOR_BUTTON_B_GPIO) == LOW;
-  button_a_stuck = a_low;
-  button_b_stuck = b_low;
-  button_a.reset(a_low, now);
-  button_b.reset(b_low, now);
-  if (a_low || b_low) {
-    Serial.printf("# WARNING: button %s reads pressed at boot (held, stuck, or wired to 3V3/GND wrongly);"
-                  " ignored until released\n", a_low && b_low ? "A and B" : (a_low ? "A" : "B"));
-  }
 
   core.set_sink(on_fault, nullptr);
   core.begin(now);
@@ -332,9 +302,6 @@ void setup() {
   print_hello();
   print_selftest();
   last_hello_ms = millis();
-#if MONITOR_BUZZER_ENABLED
-  buzzer.chirp(millis(), 100);  // audible start-up check
-#endif
 }
 
 void loop() {
@@ -357,7 +324,7 @@ void loop() {
     bus = transport.poll_status();
     const uint32_t alerts = transport.last_alerts();
     if (alerts & TWAI_ALERT_BUS_OFF) {
-      Serial.println("# ALERT: monitor BUS-OFF. Recovery is manual: Button B long press or 'recover'.");
+      Serial.println("# ALERT: monitor BUS-OFF. Recovery is manual: send 'recover'.");
     }
     if (alerts & TWAI_ALERT_BUS_RECOVERED) Serial.println("# ALERT: bus-off recovery complete, restarting");
     if (alerts & TWAI_ALERT_ERR_PASS) Serial.println("# ALERT: monitor error passive");
@@ -388,32 +355,9 @@ void loop() {
     }
   }
 
-  // 5. Buttons. A: short = next OLED page. B: short = silence, long = bus-off recovery.
-  const Button::Event ea = button_a.update(digitalRead(MONITOR_BUTTON_A_GPIO) == LOW, now);
-  const Button::Event eb = button_b.update(digitalRead(MONITOR_BUTTON_B_GPIO) == LOW, now);
-  if (!button_a.pressed()) button_a_stuck = false;
-  if (!button_b.pressed()) button_b_stuck = false;
-  if (ea == Button::Event::ShortPress) {
-    page = static_cast<uint8_t>((page + 1) % kOledPageCount);
-    last_oled_ms = 0;
-    Serial.printf("# button A: OLED page %u\n", page);
-  }
-  if (eb == Button::Event::ShortPress) {
-    buzzer.silence();
-    Serial.println("# button B: alarm silenced");
-  } else if (eb == Button::Event::LongPress) {
-    const char* why = "";
-    request_recovery(&why);
-    Serial.printf("# button B long press: %s\n", why);
-  }
-
-  // 6. Indicators.
+  // 5. Indicators.
   proto::Severity worst = proto::Severity::Info;
   const bool any = core.worst_active(worst);
-  if (core.last_critical_raise_id() > alarm_seen_event) {
-    alarm_seen_event = core.last_critical_raise_id();
-    buzzer.on_new_critical(now);
-  }
   LedState leds;
   if (!lamp_test(now - boot_ms, leds)) {
     const bool nodes_ok = core.heartbeat_state(1) == LinkState::Ok && core.telemetry_state(1) == LinkState::Ok &&
@@ -422,9 +366,8 @@ void loop() {
     leds = compute_leds(in, now);
   }
   set_leds(leds);
-  set_buzzer(buzzer.output(any && worst == proto::Severity::Critical, now));
 
-  // 7. OLED and periodic serial lines.
+  // 6. OLED (pages rotate on their own) and periodic serial lines.
   if (!oled_ok && now - last_oled_probe_ms >= kOledRetryMs) oled_init();
   if (now - last_oled_ms >= kOledRefreshMs) {
     last_oled_ms = now;

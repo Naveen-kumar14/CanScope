@@ -67,3 +67,5 @@ canscope_test(test_serial_link firmware_host/test_serial_link.cpp)
 canscope_test(test_ecu_core firmware_host/test_ecu_core.cpp)
 canscope_test(test_monitor_core firmware_host/test_monitor_core.cpp)
 canscope_test(test_monitor_ui firmware_host/test_monitor_ui.cpp)
+# Node 3 pin assignments as built (monitor_hw_config.h).
+target_include_directories(test_monitor_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/monitor/include)

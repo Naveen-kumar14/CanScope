@@ -228,51 +228,6 @@ def ground(c: Canvas, x, y, label="GND (top rail)"):
         c.text(x, y + 26, label, 9, MUTED, anchor="mm")
 
 
-def button(c: Canvas, cx, cy, name):
-    c.rect(cx - 26, cy - 26, cx + 26, cy + 26, fill=(60, 60, 64), outline=INK, width=1.5, r=4)
-    c.circle(cx, cy, 13, fill=(20, 20, 20))
-    legs = {"L1": (cx - 28, cy + 28), "L2": (cx + 28, cy + 28), "L3": (cx + 28, cy - 28), "L4": (cx - 28, cy - 28)}
-    for n, (x, y) in legs.items():
-        c.rect(x - 4, y - 4, x + 4, y + 4, fill=PINC, outline=(80, 60, 0))
-        c.text(x + (-10 if x < cx else 10), y, n, 9, MUTED, anchor="rm" if x < cx else "lm")
-    c.dashed([legs["L1"], legs["L3"]], (180, 180, 180), 1, 4, 4)
-    c.text(cx, cy + 46, name, 11, INK, bold=True, anchor="mm")
-    return legs
-
-
-def npn(c: Canvas, blocked=True):
-    """Q1 symbol, base on the right (B 240,232), C (200,200), E (200,265)."""
-    c.circle(214, 232, 30, outline=INK, width=1.5)
-    c.line([(222, 212), (222, 252)], INK, 3)
-    c.line([(240, 232), (222, 232)], INK, 2)
-    c.line([(222, 222), (200, 205), (200, 200)], INK, 2)
-    c.line([(222, 242), (200, 260), (200, 265)], INK, 2)
-    c.poly([(200, 260), (206, 250), (211, 257)], fill=INK)
-    c.text(190, 200, "C", 10, MUTED, anchor="rm")
-    c.text(190, 266, "E", 10, MUTED, anchor="rm")
-    c.text(246, 222, "B", 10, MUTED, anchor="lm")
-    c.text(150, 232, "Q1 NPN", 11, INK, bold=True, anchor="rm")
-    if blocked:
-        c.tag(150, 252, "PINOUT BLOCKED (G10)", STATUS_COL["BLOCKED"], (255, 235, 235), 9)
-
-
-def buzzer(c: Canvas):
-    c.circle(200, 150, 17, fill=(30, 30, 30), outline=INK)
-    c.text(200, 150, "BZ", 9, (230, 230, 230), bold=True, anchor="mm")
-    c.text(212, 128, "+", 13, STATUS_COL["BLOCKED"], bold=True, anchor="lm")
-    c.text(212, 173, "-", 13, INK, bold=True, anchor="lm")
-    c.text(232, 150, "BZ1 5 V active", 11, INK, bold=True, anchor="lm")
-
-
-def diode(c: Canvas, x, yk, ya):
-    c.line([(x, yk), (x, ya)], WIRE["component"], 2)
-    ym = (yk + ya) / 2
-    c.poly([(x - 8, ym + 7), (x + 8, ym + 7), (x, ym - 7)], fill=(200, 200, 200), outline=INK)
-    c.line([(x - 8, ym - 7), (x + 8, ym - 7)], INK, 2.5)
-    c.text(x - 12, ym, "D1\n1N4148\n(if magnetic)", 9, INK, anchor="rm", spacing=1)
-
-
-# --------------------------------------------------------------------------- wires
 def draw_wire(c: Canvas, conn, pts, state):
     cid = conn["id"]
     cur = state.get("current")
@@ -293,34 +248,14 @@ def draw_wire(c: Canvas, conn, pts, state):
         c.line(pts, mix(col, a=0.3) if dim else col, wd)
     for q in (pts[0], pts[-1]):
         c.circle(*q, 4.5, fill=mix(INK, a=0.3) if dim else INK)
-    if state.get("ids", True) and not dim and cid not in NOTE_IDS:
+    if state.get("ids", True) and not dim:
         lx, ly = LABEL_POS.get(cid) or _label_pos(pts)
         c.tag(lx, ly, cid, STATUS_COL[conn["status"]], (255, 255, 255), 10)
     return True
 
 
-# Short component leads in the crowded buzzer area are listed in a note box
-# instead of carrying a tag; other tags are nudged apart.
-NOTE_IDS = {"N3-28", "N3-29", "N3-30", "N3-31", "N3-32", "N3-33", "N3-34"}
 LABEL_POS = {"N3-04": (400, 760), "N3-05": (380, 860), "N3-10": (740, 760), "N3-11": (720, 860),
              "N3-01": (285, 760), "N3-02": (335, 860), "B-05": (950, 700)}
-
-
-def _lead_note(c: Canvas, ledger, state):
-    allc = L.by_id(ledger)
-    x0, y0 = 14, 548
-    c.rect(x0, y0, 262, y0 + 196, fill=(255, 255, 255), outline=(190, 190, 190), r=6)
-    c.text(x0 + 8, y0 + 8, "Buzzer-driver leads (no tag in drawing)", 10, INK, bold=True)
-    for i, cid in enumerate(sorted(NOTE_IDS)):
-        conn = allc[cid]
-        hot = cid == state.get("current")
-        col = STATUS_COL[conn["status"]]
-        y = y0 + 34 + i * 22
-        if hot:
-            c.rect(x0 + 4, y - 9, 258, y + 9, fill=HALO, r=3)
-        c.text(x0 + 8, y, cid, 10, col, bold=True, anchor="lm")
-        c.text(x0 + 58, y, f"{conn['from']} - {conn['to']}", 10, INK, kind="mono", anchor="lm")
-        c.text(x0 + 218, y, {"BLOCKED": "BLKD", "PROVISIONAL": "PROV", "CONFIRMED": "CONF"}[conn["status"]], 9, col, bold=True, anchor="lm")
 
 
 def _label_pos(pts):
@@ -377,19 +312,6 @@ def geometry(ledger, node):
         "N3-20": [E("D27"), (535, 310), (470, 310), (470, 290)],
         "N3-21": [(470, 240), (470, 215)],
         "N3-22": [(470, 165), (470, 90)],
-        "N3-23": [E("D32"), (735, 300), (872, 300), (872, 228)],
-        "N3-24": [(928, 172), (928, 90)],
-        "N3-25": [E("D33"), (685, 285), (742, 285), (742, 228)],
-        "N3-26": [(798, 172), (798, 90)],
-        "N3-27": [E("D13"), (385, 232), (320, 232)],
-        "N3-28": [(270, 232), (240, 232)],
-        "N3-29": [(252, 250), (252, 232)],
-        "N3-30": [(252, 285), (252, 298)],
-        "N3-31": [(200, 265), (200, 290)],
-        "N3-32": [(200, 167), (200, 200)],
-        "N3-33": [(130, 165), (130, 170), (200, 170)],
-        "N3-34": [(130, 135), (130, 130), (200, 130)],
-        "N3-35": [E("VIN"), (285, 318), (60, 318), (60, 105), (200, 105), (200, 133)],
     }
 
 
@@ -440,22 +362,9 @@ def draw_node(c: Canvas, ledger, node, state=None):
                                 650: ((40, 170, 60), "GRN", "R_G")}.items():
             resistor(c, (x, 290), (x, 240), f"{r}\n220", BANDS["220"])
             led(c, x, 215, 165, col, nm)
-        button(c, 770, 200, "BTN_B")
-        button(c, 900, 200, "BTN_A")
-        buzzer(c)
-        diode(c, 130, 135, 165)
-        npn(c, blocked=conns["N3-28"]["status"] == "BLOCKED")
-        resistor(c, (320, 232), (270, 232), "R_B 1k", BANDS["1k"], vertical=False)
-        resistor(c, (252, 250), (252, 285), "", BANDS["10k"])
-        c.text(262, 268, "R_PD\n10k", 9, INK, bold=True, anchor="lm", spacing=0)
-        ground(c, 252, 298, "")
-        ground(c, 200, 290, "")
-        c.text(330, 290, "ground symbol =\ntop GND rail", 9, MUTED, anchor="lm", spacing=0)
     for cid, conn in conns.items():
         if cid in geo and draw_wire(c, conn, geo[cid], state):
             drawn.append(cid)
-    if node == 3:
-        _lead_note(c, ledger, state)
     _legend(c)
     return set(geo), drawn
 
@@ -564,8 +473,8 @@ def draw_bus(c: Canvas, ledger, state=None):
 
 # --------------------------------------------------------------------------- reference sheets
 def draw_pin_locator(c: Canvas, ledger):
-    draw_esp32(c, ledger, "ESP32 DevKit V1 30-pin", {"3V3", "GND", "TX2", "RX2", "D21", "D22", "D25", "D26", "D27",
-                                                    "D32", "D33", "D13", "VIN"}, show_avoid=True)
+    draw_esp32(c, ledger, "ESP32 DevKit V1 30-pin", {"3V3", "GND", "TX2", "RX2", "D21", "D22", "D26", "D27"},
+                 show_avoid=True)
     c.text(640, 60, "ESP32 DevKit V1 (30-pin) pin locator: USB to the LEFT, component side up", 22, INK, bold=True,
            anchor="mm")
     c.text(640, 95, "Highlighted = used by CANScope.  Dark red = do NOT use (flash, strapping, USB serial).",
@@ -590,6 +499,8 @@ def draw_pin_locator(c: Canvas, ledger):
 def _pin_uses(ledger):
     uses = {}
     for conn in ledger["connections"]:
+        if conn["status"] == "BLOCKED":  # a do-not-wire row does not use the pin
+            continue
         ep = L.parse_ep(conn["from"])
         if ep.comp.startswith("ESP"):
             tgt = conn["to"]
@@ -651,7 +562,7 @@ def draw_trx_id(c: Canvas):
 
 
 def draw_parts_id(c: Canvas):
-    c.text(640, 40, "Identify before you insert: LED, resistor, button, buzzer, transistor, OLED", 22, INK, bold=True,
+    c.text(640, 40, "Identify before you insert: LED, resistor, OLED", 22, INK, bold=True,
            anchor="mm")
     # LED
     c.rect(40, 80, 400, 440, outline=(200, 200, 200), r=8)
@@ -667,62 +578,27 @@ def draw_parts_id(c: Canvas):
     c.rect(420, 80, 860, 440, outline=(200, 200, 200), r=8)
     c.text(640, 100, "Resistor colour bands (4-band) - measure anyway (G13)", 15, INK, bold=True, anchor="mm")
     y = 150
-    for val, bands, txt in (("220", BANDS["220"], "red red brown (gold)"), ("120", BANDS["120"], "brown red brown (gold)"),
-                            ("1k", BANDS["1k"], "brown black red (gold)"), ("10k", BANDS["10k"], "brown black orange (gold)")):
+    for val, bands, txt in (("220", BANDS["220"], "red red brown (gold)"), ("120", BANDS["120"], "brown red brown (gold)")):
         resistor(c, (450, y), (560, y), "", bands, vertical=False)
         c.text(580, y, f"{val} Ohm: {txt}", 13, INK, anchor="lm")
         y += 60
     c.text(640, 410, "5-band (1%) parts use different colours.", 12, MUTED, anchor="mm")
-    # button
-    c.rect(880, 80, 1240, 440, outline=(200, 200, 200), r=8)
-    c.text(1060, 100, "Tactile button: diagonal rule (G8)", 15, INK, bold=True, anchor="mm")
-    legs = button(c, 1060, 240, "BTN")
-    c.text(1060, 340, "Diagonal legs (L1, L3) are ALWAYS on\nopposite contacts, in any orientation.\n"
-                      "GPIO -> L1,  GND -> L3.  Meter: open released,\nclosed pressed.", 12, INK, anchor="mm",
-           spacing=3)
-    # buzzer
-    c.rect(40, 460, 400, 920, outline=(200, 200, 200), r=8)
-    c.text(220, 480, "5 V active buzzer (G11)", 15, INK, bold=True, anchor="mm")
-    c.circle(220, 590, 60, fill=(30, 30, 30))
-    c.circle(220, 590, 8, fill=(80, 80, 80))
-    c.text(220, 520, "+", 26, STATUS_COL["BLOCKED"], bold=True, anchor="mm")
-    c.line([(200, 650), (200, 790)], (120, 120, 120), 4)
-    c.line([(240, 650), (240, 750)], (120, 120, 120), 4)
-    c.text(190, 770, "+ long leg", 12, INK, bold=True, anchor="rm")
-    c.text(250, 740, "- short", 12, INK, bold=True, anchor="lm")
-    c.text(220, 840, "Active = beeps on plain DC.\nRated 5 V, <= 30 mA.  Never on a GPIO.\n"
-                     "Electromagnetic type -> add D1.", 12, INK, anchor="mm", spacing=3)
-    # transistor
-    c.rect(420, 460, 860, 920, outline=(200, 200, 200), r=8)
-    c.text(640, 480, "NPN transistor TO-92 (G10) - BLOCKED until read", 15, STATUS_COL["BLOCKED"], bold=True,
-           anchor="mm")
-    c.poly([(560, 520), (720, 520), (720, 620), (560, 620)], fill=(40, 40, 40))
-    c.d.pieslice([c.p(560, 560), c.p(720, 680)], 0, 180, fill=(40, 40, 40))
-    c.text(640, 570, "flat face\ntoward you", 12, (230, 230, 230), anchor="mm", spacing=2)
-    for i in range(3):
-        c.line([(600 + i * 40, 680), (600 + i * 40, 760)], (150, 150, 150), 4)
-        c.text(600 + i * 40, 775, str(i + 1), 12, INK, bold=True, anchor="mm")
-    rows = [("PN2222A", "E B C"), ("2N3904", "E B C"), ("S8050", "E B C"), ("BC547", "C B E")]
-    for i, (p, o) in enumerate(rows):
-        c.text(500, 805 + i * 24, f"{p:<8} legs 1-2-3 = {o}", 13, INK, kind="mono")
-    c.text(640, 905, "Examples only: confirm with YOUR part's datasheet.", 12, STATUS_COL["BLOCKED"], bold=True,
-           anchor="mm")
     # OLED
-    c.rect(880, 460, 1240, 920, outline=(200, 200, 200), r=8)
-    c.text(1060, 480, "SSD1306 I2C OLED (G7)", 15, INK, bold=True, anchor="mm")
-    c.rect(930, 520, 1190, 700, fill=(25, 60, 110), r=6)
-    c.rect(950, 560, 1170, 690, fill=(8, 8, 10))
+    c.rect(880, 80, 1240, 440, outline=(200, 200, 200), r=8)
+    c.text(1060, 100, "SSD1306 I2C OLED (G7)", 15, INK, bold=True, anchor="mm")
+    c.rect(930, 130, 1190, 280, fill=(25, 60, 110), r=6)
+    c.rect(950, 170, 1170, 270, fill=(8, 8, 10))
     for i, t in enumerate(("GND", "VCC", "SCL", "SDA")):
-        c.rect(990 + i * 45, 528, 1000 + i * 45, 538, fill=PINC)
-        c.text(995 + i * 45, 550, t, 10, SILK, bold=True, anchor="mm")
-    c.text(1060, 760, "Read YOUR labels: some modules\nswap GND and VCC.\nPower from 3V3 only "
+        c.rect(990 + i * 45, 138, 1000 + i * 45, 148, fill=PINC)
+        c.text(995 + i * 45, 160, t, 10, SILK, bold=True, anchor="mm")
+    c.text(1060, 360, "Read YOUR labels: some modules\nswap GND and VCC.\nPower from 3V3 only "
                       "(keeps SDA/SCL\npull-ups at 3.3 V).\nAddress: back marking 0x78 = 0x3C.",
            12, INK, anchor="mm", spacing=3)
 
 
 def draw_power(c: Canvas):
     c.text(640, 40, "Power and ground domains (power OFF while wiring)", 22, INK, bold=True, anchor="mm")
-    for i, (n, extra) in enumerate(((1, ""), (2, ""), (3, "OLED.  LEDs: from GPIOs;\nbuttons: internal pull-ups"))):
+    for i, (n, extra) in enumerate(((1, ""), (2, ""), (3, "OLED and LEDs\n(from GPIOs)"))):
         x0 = 60 + i * 410
         c.rect(x0, 90, x0 + 360, 640, outline=(180, 180, 180), r=10)
         c.text(x0 + 180, 112, f"NODE {n}", 18, INK, bold=True, anchor="mm")
@@ -738,9 +614,6 @@ def draw_power(c: Canvas):
         c.rect(x0 + 90, 420, x0 + 270, 470, fill=(255, 225, 225), outline=WIRE["red"], width=2, r=4)
         c.text(x0 + 180, 445, f"3V3_N{n}", 14, INK, bold=True, anchor="mm")
         c.text(x0 + 180, 500, f"feeds: TRX{n}" + (f",\n{extra}" if extra else ""), 13, INK, anchor="mm")
-        if n == 3:
-            c.line([(x0 + 270, 265), (x0 + 330, 265), (x0 + 330, 560)], WIRE["orange"], 4)
-            c.text(x0 + 320, 580, "VIN -> BZ1 +\n(N3-35, last)", 12, INK, bold=True, anchor="rm", spacing=2)
         c.rect(x0 + 40, 600, x0 + 320, 630, fill=(40, 40, 40), r=4)
         c.text(x0 + 180, 615, f"GND node {n}", 13, (240, 240, 240), bold=True, anchor="mm")
     c.line([(100, 680), (1180, 680)], (30, 30, 30), 6)
@@ -751,7 +624,7 @@ def draw_power(c: Canvas):
     for i, t in enumerate((
             "NEVER join 3V3_N1, 3V3_N2 and 3V3_N3 together (two regulators fighting).",
             "NEVER join VIN/5 V of different nodes, and NEVER put 5 V on any 3V3 pin or rail.",
-            "No external 5 V supply is used.  The buzzer takes 5 V from Node 3's own VIN pin while Node 3 is on USB.",
+            "No external 5 V supply is used.  Nothing is wired to any VIN pin.",
             "Unplug ALL three USB cables before any wiring change or any resistance / continuity test.")):
         c.text(80, 760 + i * 40, "X  " + t, 15, STATUS_COL["BLOCKED"] if i < 2 else INK, bold=i < 2)
 
@@ -791,9 +664,7 @@ def draw_placement(c: Canvas):
     zone(b, 1, 15, 0, 10, "ESP3  cols 1-15", (190, 205, 225))
     zone(b, 18, 24, 5, 10, "TRX3\n+ RT2", (180, 210, 245))
     zone(b, 27, 33, 5, 10, "OLED", (200, 220, 240))
-    zone(b, 18, 30, 0, 5, "buzzer, Q1,\nR_B, R_PD, D1", (240, 225, 200))
     zone(b, 34, 46, 0, 5, "3 LEDs + 3 x 220", (215, 240, 215))
-    zone(b, 50, 58, 0, 10, "BTN_B   BTN_A\nacross trench", (235, 235, 235))
     c.text(640, 880, "Board A rails are NOT used: every Node 1 / Node 2 wire is point-to-point.  Never put 3V3 on a "
                      "Board A rail.", 13, INK, anchor="mm")
     c.text(640, 905, "Board B rails: bottom + = 3V3_N3, bottom - = GND, top - = GND (linked by N3-03).  "

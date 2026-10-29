@@ -5,9 +5,6 @@ export function SelftestCard({ selftest }: { selftest: SelftestEvent }) {
   const rows: [string, string, boolean][] = [
     ['CAN controller', selftest.can, selftest.can === 'ok'],
     ['OLED (I2C)', selftest.oled, selftest.oled.startsWith('ok')],
-    ['Button A', selftest.buttonA, selftest.buttonA === 'released'],
-    ['Button B', selftest.buttonB, selftest.buttonB === 'released'],
-    ['Buzzer', selftest.buzzer, selftest.buzzer === 'enabled'],
     ['LEDs', selftest.leds, true],
   ];
   return (

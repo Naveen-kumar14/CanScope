@@ -10,16 +10,13 @@
 //
 //   CAN TX/RX     GPIO17 / GPIO16   N3-06 / N3-07   gates G1-G6
 //   OLED SDA/SCL  GPIO21 / GPIO22   N3-12 / N3-13   gate G7 (SSD1306, I2C)
-//   LED G/Y/R     GPIO25/26/27      N3-14..N3-22    gate G9 (each via 220 Ohm)
-//   Button A/B    GPIO32 / GPIO33   N3-23..N3-26    gate G8 (to GND, internal pull-up)
-//   Buzzer drive  GPIO13            N3-27           gate G10 BLOCKED (Q1 pinout)
+//   LED Y/R       GPIO26 / GPIO27   N3-17..N3-22    gate G9 (each via 220 Ohm)
+//   LED G         none (-1)         N3-14 BLOCKED   no verified pin
 //
-// The buzzer is a 5 V part powered from VIN and switched by the low-side NPN
-// Q1; GPIO13 only drives Q1's base through 1 kOhm. Never wire the buzzer to a
-// GPIO. Because Q1's part number and E/B/C order are still unknown (gate G10),
-// buzzer output is DISABLED by default: GPIO13 stays a high-impedance input
-// and the 10 kOhm pull-down keeps Q1 off. Build env "monitor_buzzer" enables it
-// once G10 has passed.
+// Node 3 has no push-buttons and no buzzer: the firmware configures no other
+// GPIO (GPIO25, GPIO32 and GPIO33 stay unconfigured inputs). The OLED turns
+// its pages by itself (monitor_ui oled_page_for). The green LED stays disabled
+// until its real GPIO is verified and recorded in the ledger.
 // =============================================================================
 #pragma once
 
@@ -51,8 +48,9 @@
 #ifndef MONITOR_OLED_I2C_ADDR
 #define MONITOR_OLED_I2C_ADDR 0
 #endif
+// -1 = not connected: the pin is never configured or driven.
 #ifndef MONITOR_LED_GREEN_GPIO
-#define MONITOR_LED_GREEN_GPIO 25  // ledger N3-14, PROVISIONAL
+#define MONITOR_LED_GREEN_GPIO -1  // ledger N3-14 BLOCKED: pin not verified
 #endif
 #ifndef MONITOR_LED_YELLOW_GPIO
 #define MONITOR_LED_YELLOW_GPIO 26  // ledger N3-17, PROVISIONAL
@@ -60,17 +58,12 @@
 #ifndef MONITOR_LED_RED_GPIO
 #define MONITOR_LED_RED_GPIO 27  // ledger N3-20, PROVISIONAL
 #endif
-#ifndef MONITOR_BUTTON_A_GPIO
-#define MONITOR_BUTTON_A_GPIO 32  // ledger N3-23, PROVISIONAL (active LOW)
-#endif
-#ifndef MONITOR_BUTTON_B_GPIO
-#define MONITOR_BUTTON_B_GPIO 33  // ledger N3-25, PROVISIONAL (active LOW)
-#endif
-#ifndef MONITOR_BUZZER_GPIO
-#define MONITOR_BUZZER_GPIO 13  // ledger N3-27 (drives Q1 base via 1 kOhm only)
-#endif
-#ifndef MONITOR_BUZZER_ENABLED
-#define MONITOR_BUZZER_ENABLED 0  // BLOCKED: gate G10 (Q1 part / pinout) not passed
+// No two functions on one GPIO.
+#define MONITOR_PIN_CLASH(a, b) ((a) >= 0 && (a) == (b))
+#if MONITOR_PIN_CLASH(MONITOR_LED_GREEN_GPIO, MONITOR_LED_YELLOW_GPIO) || \
+    MONITOR_PIN_CLASH(MONITOR_LED_GREEN_GPIO, MONITOR_LED_RED_GPIO) ||    \
+    MONITOR_PIN_CLASH(MONITOR_LED_YELLOW_GPIO, MONITOR_LED_RED_GPIO)
+#error "Node 3 GPIO assigned to two functions (check monitor_hw_config.h against the ledger)"
 #endif
 
 namespace monitor_cfg {

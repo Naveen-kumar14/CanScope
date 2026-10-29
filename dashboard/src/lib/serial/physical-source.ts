@@ -20,6 +20,7 @@ import { SERIAL } from '../protocol-spec.generated';
 import { parseSerialLine } from '../serial-line-parser';
 import type { CanScopeEvent, DeviceNode } from '../../types/events';
 import { CommandTracker, type CommandRecord } from './command-tracker';
+import { OledFaultSync, type OledUpdate } from './oled-sync';
 import {
   SerialLink,
   describePort,
@@ -99,6 +100,9 @@ export class PhysicalSource implements CanDataSource {
   private dirty = false;
   private seenFaults = new Set<string>();
   private seenOrder: string[] = [];
+  private oledSync = new OledFaultSync();
+  /** Display commands sent to Node 3 and not yet reported back to oledSync. */
+  private oledPending = new Map<string, OledUpdate>();
   private connection: ConnectionState = 'idle';
   private everConnected = false;
 
@@ -285,6 +289,8 @@ export class PhysicalSource implements CanDataSource {
     this.everConnected = false;
     this.seenFaults.clear();
     this.seenOrder = [];
+    this.oledSync = new OledFaultSync();
+    this.oledPending.clear();
   }
 
   /** Only ports picked in this session are tracked; any other port plugged in is ignored. */
@@ -364,10 +370,12 @@ export class PhysicalSource implements CanDataSource {
       if (info.node) {
         const n = this.tracker.failNode(info.node, state === 'closed' ? 'port closed' : `link ${state}: ${detail ?? ''}`.trim(), now);
         if (n) info.diagnostics = this.pushDiag(info.diagnostics, `${n} pending command(s) failed: link ${state}`);
+        if (info.node === 'monitor') this.oledSync.onMonitorLost();
       }
       if (state !== 'error') info.diagnostics = this.pushDiag(info.diagnostics, `port ${state}${detail ? `: ${detail}` : ''}`);
     }
     if (state === 'open') info.diagnostics = this.pushDiag(info.diagnostics, `port open at ${this.baudRate} baud`);
+    this.checkOledResults();
     this.updateConflicts();
     this.updateConnection();
     this.publish();
@@ -421,9 +429,18 @@ export class PhysicalSource implements CanDataSource {
     }
 
     if (event.type === 'ack') {
-      if (info.node) this.tracker.applyAck(info.node, event, now, info.id);
+      if (info.node && this.tracker.applyAck(info.node, event, now, info.id)) {
+        const r = this.tracker.get(event.id);
+        if (r?.state === 'ok' && (r.node === 'node1' || r.node === 'node2')) this.oledSync.onEcuAck(r.node, r.text);
+      }
       this.publish();  // command results must show at once
     }
+    if (event.type === 'ecu_state' && (info.node === 'node1' || info.node === 'node2')) {
+      this.oledSync.onEcuState(info.node, event.demoFault);
+    }
+    if (event.type === 'hello' && info.node === 'monitor') this.oledSync.onMonitorHello(event.bootId);
+    this.checkOledResults();
+    this.syncOled();
     if (event.type === 'fault') {
       const key = `${event.bootId}:${event.eventId}`;
       if (this.seenFaults.has(key)) return;  // duplicate: never processed twice
@@ -432,6 +449,40 @@ export class PhysicalSource implements CanDataSource {
       if (this.seenOrder.length > MAX_SEEN_FAULT_EVENTS) this.seenFaults.delete(this.seenOrder.shift()!);
     }
     this.handlers?.onEvent(event);
+  }
+
+  /**
+   * Tells Node 3's OLED what the ECUs were commanded (display only, see
+   * oled-sync.ts). Each update is an ordinary tracked command: it counts as
+   * shown only after Node 3's ok ack. Without a Node 3 link, a user-commanded
+   * change is logged as not sent and goes out after Node 3 reconnects.
+   */
+  private syncOled(): void {
+    if (!this.linkFor('monitor')) {
+      const unsendable = this.oledSync.takeUnsendable();
+      const now = this.now();
+      for (const u of unsendable) {
+        this.tracker.notSent('monitor', u.text, 'Node 3 not connected; sent when it reconnects', now);
+      }
+      if (unsendable.length > 0) this.publish();  // command results must show at once
+      return;
+    }
+    for (const u of this.oledSync.take()) {
+      void this.sendCommand('monitor', u.text).then((r) => {
+        this.oledPending.set(r.id, u);
+        this.checkOledResults();
+      });
+    }
+  }
+
+  /** Reports finished display commands (ok, rejected, unsupported, timeout, lost) to oledSync. */
+  private checkOledResults(): void {
+    for (const [id, u] of this.oledPending) {
+      const r = this.tracker.get(id);
+      if (r && r.state === 'pending') continue;
+      this.oledPending.delete(id);
+      this.oledSync.onResult(u, r ? r.state : 'connection_lost');
+    }
   }
 
   private updateConflicts(): void {
@@ -469,6 +520,7 @@ export class PhysicalSource implements CanDataSource {
   /** Expires command timeouts and publishes pending changes (runs every tickMs). */
   tick(): void {
     if (this.tracker.tick(this.now()) > 0) this.dirty = true;
+    this.checkOledResults();
     if (this.dirty) this.publish();
   }
 

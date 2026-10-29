@@ -184,9 +184,6 @@ export interface SelftestEvent extends Base {
   bootId: string;
   can: string;
   oled: string;
-  buttonA: string;
-  buttonB: string;
-  buzzer: string;
   leds: string;
 }
 

@@ -69,7 +69,7 @@ tools\pio.cmd run -d firmware\monitor -e monitor -t upload --upload-port COM7
 
 Replace `COM5`/`COM6`/`COM7` with the numbers you found. If the upload stalls at `Connecting....____` or reports *Wrong boot mode*, hold the board's **BOOT** button until `Writing at 0x…` appears.
 
-Never flash `firmware\node3` on Node 3; it is the old scaffold that refuses to start CAN. Only flash `monitor_buzzer` after bench gate G10 has passed.
+Never flash `firmware\node3` on Node 3; it is the old scaffold that refuses to start CAN.
 
 ## 5. Serial monitor (460800 baud)
 

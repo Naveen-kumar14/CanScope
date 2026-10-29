@@ -145,11 +145,12 @@ export function CommandedFaults({ state, monitorOnline }: Omit<Props, 'nowMs'>) 
       <h2 id="commanded-title">Requested faults vs. detection</h2>
       <p className="card-intro">
         <strong>Fault requested</strong> is what the ECU reports about itself. <strong>Fault detected</strong> appears only
-        when Node 3 independently sees the effect on the bus.
+        when Node 3 independently sees the effect on the bus. Node 3’s OLED lists requested faults, sent to it over USB;
+        that is a display, not a detection.
       </p>
       {commanded.length === 0 ? (
         <p className="muted small" data-testid="commanded-none">
-          No ECU reports an active demo fault.
+          No ECU reports an active injected fault.
         </p>
       ) : (
         commanded.map(({ node, s }) => {
@@ -160,7 +161,7 @@ export function CommandedFaults({ state, monitorOnline }: Omit<Props, 'nowMs'>) 
               <p>
                 <strong>{nodeLabel(node)}</strong> — fault requested: <code>{name}</code>
                 <br />
-                <span className="small muted">{demoFault(name)?.description ?? 'unknown demo fault'}</span>
+                <span className="small muted">{demoFault(name)?.description ?? 'unknown fault'}</span>
               </p>
               <ul className="check-list">
                 {expected.map((code) => {

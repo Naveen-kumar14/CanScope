@@ -3,7 +3,7 @@
 CANScope is a three-board ESP32 CAN demonstrator:
 
 - **Node 1** (Motor ECU) and **Node 2** (Battery ECU) transmit protocol v1 telemetry and heartbeats through SN65HVD230 transceivers.
-- **Node 3** (the CANScope Monitor) receives every frame, validates it, and detects faults on its own. It shows status on an SSD1306 OLED, three LEDs and a buzzer, and reports to the dashboard over USB serial.
+- **Node 3** (the CANScope Monitor) receives every frame, validates it, and detects faults on its own. It shows status on an SSD1306 OLED and status LEDs (no buttons, no buzzer), and reports to the dashboard over USB serial.
 - The React dashboard connects to the real boards with **Web Serial**. It shows what Node 3 observed, kept separate from what each ECU reports about itself, and sends validated, acknowledged commands to the ECUs.
 
 > **Status (2026-10-17):** all firmware targets compile, and the host and dashboard tests pass. **Nothing has been flashed or run on hardware yet.** Pins are `WORKING_ASSUMPTION`, from the PROVISIONAL wiring ledger, and the buzzer is disabled until gate G10 passes. Start with [docs/physical-integration.md](docs/physical-integration.md). The protocol is in [docs/protocol/canscope-protocol-v1.md](docs/protocol/canscope-protocol-v1.md). History: [TASK.md](TASK.md).
@@ -24,7 +24,7 @@ CANScope is a three-board ESP32 CAN demonstrator:
 │   │   ├── ecu_core/          Node 1/2 sensor model, schedule, demo faults, commands (portable)
 │   │   ├── ecu_runtime/       Node 1/2 ESP32 glue (TWAI + USB serial)
 │   │   ├── monitor_core/      Node 3 validation, fault detection, JSON lines (portable)
-│   │   ├── monitor_ui/        Node 3 debounce, LED policy, buzzer pattern, OLED pages (portable)
+│   │   ├── monitor_ui/        Node 3 LED policy, display command, OLED pages and rotation (portable)
 │   │   ├── can_config/        config model + validation (portable)
 │   │   ├── can_transport/     transport interface, TX gate (portable) + ESP32 TWAI driver
 │   │   ├── frame_capture/     raw frame model + JSON line encoder (portable)
@@ -68,7 +68,7 @@ pio device monitor -b 115200 --port COM5                 # serial monitor
 sh tools/build-firmware.sh                               # build all targets incl. legacy sketches
 ```
 
-Targets: `firmware/node1` (`node1`, `legacy_sketch`), `firmware/node2` (`node2`, `legacy_sketch`), `firmware/monitor` (`monitor`, plus `monitor_buzzer` for after gate G10), `firmware/node3` (`node3`).
+Targets: `firmware/node1` (`node1`, `legacy_sketch`), `firmware/node2` (`node2`, `legacy_sketch`), `firmware/monitor` (`monitor`), `firmware/node3` (`node3`).
 
 **The Node 3 hardware runs `firmware/monitor`.** `firmware/node3` is the earlier scaffold that refuses to start CAN; it is kept only as a build regression. All CANScope nodes use 460800 baud on USB.
 
@@ -110,5 +110,5 @@ npm run check      # typecheck + lint + tests + production build
 - The dashboard never puts a frame on the CAN bus. It only sends allow-listed text commands (`set`, `profile`, `fault`, `recover`, ...) to one board over that board's USB port, and the board validates each one again and acknowledges it.
 - Only Node 1 and Node 2 transmit (`ENABLE_TX=true`), and only their protocol frames. The monitor and node3 targets keep `ENABLE_TX=false`.
 - Bus-off recovery is never automatic.
-- The 5 V buzzer is switched by a low-side NPN and is never driven directly from a GPIO. Its output stays disabled until the transistor pinout (gate G10) is confirmed.
+- Node 3 has no push-buttons and no buzzer. The green status LED stays disabled until its GPIO is verified (ledger N3-14 BLOCKED).
 - The command feature was requested on 2026-10-17 (see TASK.md).

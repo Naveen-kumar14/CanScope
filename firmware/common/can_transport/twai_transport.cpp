@@ -261,8 +261,8 @@ TransportResult TwaiTransport::request_bus_off_recovery() {
     last_error_ = err;
     return TransportResult::DriverError;
   }
-  // Recovery is only ever started by an explicit operator action (serial
-  // "recover" or Node 3 button B long press), never automatically.
+  // Recovery is only ever started by an explicit operator action (the serial
+  // "recover" command), never automatically.
   // poll_status() restarts the controller once recovery has completed.
   recovery_pending_ = true;
   return TransportResult::Ok;

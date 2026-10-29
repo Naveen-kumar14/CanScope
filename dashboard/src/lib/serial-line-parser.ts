@@ -362,7 +362,8 @@ function parseEvent(raw: Record<string, unknown>, base: Base): CanScopeEvent | n
     }
 
     case 'selftest': {
-      const fields = ['bootId', 'can', 'oled', 'buttonA', 'buttonB', 'buzzer', 'leds'] as const;
+      // Older monitor firmware also sent buttonA/buttonB/buzzer; Node 3 has none now and they are ignored.
+      const fields = ['bootId', 'can', 'oled', 'leds'] as const;
       for (const f of fields) need(str(raw[f]), `selftest: missing ${f}`);
       return {
         type: 'selftest',
@@ -370,9 +371,6 @@ function parseEvent(raw: Record<string, unknown>, base: Base): CanScopeEvent | n
         bootId: raw.bootId as string,
         can: raw.can as string,
         oled: raw.oled as string,
-        buttonA: raw.buttonA as string,
-        buttonB: raw.buttonB as string,
-        buzzer: raw.buzzer as string,
         leds: raw.leds as string,
       };
     }

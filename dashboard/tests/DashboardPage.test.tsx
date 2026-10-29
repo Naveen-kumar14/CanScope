@@ -22,7 +22,8 @@ describe('DashboardPage', () => {
 
   it('never offers raw CAN transmission, and a mock source has no command controls', () => {
     setup();
-    expect(screen.getByText(/No raw CAN transmit from the dashboard · allow-listed USB commands only/)).toBeInTheDocument();
+    expect(screen.queryByText(/No raw CAN transmit from the dashboard/)).toBeNull();  // footer banner removed
+    expect(document.querySelector('footer')).toBeNull();
     // Without a physical node there is nothing to command: no decorative buttons.
     openTab('faults');
     expect(screen.getByTestId('controls-unavailable')).toHaveTextContent('Unavailable with mock data');
@@ -58,7 +59,14 @@ describe('DashboardPage', () => {
   it('no-data (empty) state', () => {
     const { source } = setup();
     act(() => source.setConnection('connected'));
-    expect(screen.getByTestId('state-empty')).toBeInTheDocument();
+    // No "no CAN frames received yet" banner on any tab, and no empty container for it.
+    expect(screen.queryByTestId('state-empty')).toBeNull();
+    for (const tab of ['overview', 'traffic', 'faults', 'diagnostics']) {
+      openTab(tab);
+      expect(screen.queryByText(/no CAN frames received yet/i)).toBeNull();
+    }
+    expect(document.querySelector('.banner-info')).toBeNull();
+    openTab('traffic');
     expect(screen.getByTestId('frames-none')).toBeInTheDocument();
     expect(screen.getByTestId('nodes-empty')).toBeInTheDocument();
     expect(screen.getByTestId('bus-state')).toHaveTextContent('Unknown');
@@ -117,7 +125,7 @@ describe('DashboardPage', () => {
     openTab('diagnostics');
     const card = screen.getByTestId('node-node3');
     expect(card).toHaveTextContent('not running');
-    expect(card).toHaveTextContent('unverified');
+    expect(card).not.toHaveTextContent('unverified');  // Pin config column removed
     expect(card).toHaveTextContent('TX off');
   });
 

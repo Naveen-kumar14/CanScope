@@ -1,7 +1,7 @@
-// Node 3 peripheral logic, independent of the hardware drivers: button
-// debouncing, LED policy, buzzer pattern and the OLED page text. Portable
-// C++11 with an explicit millisecond clock; the ESP32 code in
-// firmware/monitor/src only copies these results to GPIOs and the display.
+// Node 3 peripheral logic, independent of the hardware drivers: LED policy,
+// the "display" command (commanded faults), OLED page rotation and the OLED
+// page text. Portable C++11 with an explicit millisecond clock; the ESP32 code
+// in firmware/monitor/src only copies these results to GPIOs and the display.
 #pragma once
 
 #include <stddef.h>
@@ -9,30 +9,9 @@
 
 #include "monitor_core.h"
 #include "raw_frame.h"
+#include "serial_link.h"
 
 namespace canscope {
-
-// Debounced active-high "pressed" input with short/long press events.
-class Button {
- public:
-  enum class Event : uint8_t { None, ShortPress, LongPress };
-
-  explicit Button(uint32_t debounce_ms = 30, uint32_t long_press_ms = 1500);
-  // raw_pressed: the electrical reading already converted to "pressed" (the
-  // board buttons are active LOW, so the caller passes digitalRead() == LOW).
-  Event update(bool raw_pressed, uint32_t now_ms);
-  bool pressed() const { return stable_; }
-  void reset(bool raw_pressed, uint32_t now_ms);
-
- private:
-  uint32_t debounce_ms_;
-  uint32_t long_press_ms_;
-  bool stable_;
-  bool last_raw_;
-  uint32_t changed_at_;
-  uint32_t pressed_at_;
-  bool long_fired_;
-};
 
 struct LedState {
   bool green;
@@ -56,30 +35,38 @@ LedState compute_leds(const IndicatorInput& in, uint32_t now_ms);
 // Returns false once the sequence has finished.
 bool lamp_test(uint32_t elapsed_ms, LedState& out);
 
-// Alarm pattern for the buzzer (driven through the Q1 low-side transistor;
-// never directly from a GPIO). A new critical fault starts 3 beeps that repeat
-// every 10 s while any critical fault is active, until silenced. A silenced
-// alarm re-arms on the next newly raised critical fault.
-class Buzzer {
+// Demo faults the dashboard reports it commanded on an ECU (the monitor's
+// "display" command, sent after the ECU acknowledged "fault ..."). OLED
+// presentation only: never an input to MonitorCore, never counted or reported
+// as a detection. MonitorCore stays the only source of detected faults.
+class CommandedFaults {
  public:
-  Buzzer();
-  void on_new_critical(uint32_t now_ms);
-  void chirp(uint32_t now_ms, uint32_t duration_ms = 80);
-  void silence();
-  bool silenced() const { return silenced_; }
-  bool output(bool critical_active, uint32_t now_ms);
+  CommandedFaults();
+  // node_id 1 or 2; DemoFault::None clears. False for any other node.
+  bool set(uint8_t node_id, proto::DemoFault fault);
+  void clear_all();
+  proto::DemoFault get(uint8_t node_id) const;
+  bool any() const;
 
  private:
-  bool alarm_;
-  bool silenced_;
-  uint32_t alarm_start_ms_;
-  bool chirp_active_;
-  uint32_t chirp_until_ms_;
+  proto::DemoFault fault_[2];
 };
+
+// Applies "display fault <node1|node2> <demo fault>", "display clear
+// <node1|node2>" or "display clear". *detail is the ack text. Ok or Rejected;
+// a rejected command changes nothing, and repeating a command is harmless.
+AckStatus apply_display_command(CommandedFaults& commanded, const Command& cmd, const char** detail);
 
 static const size_t kOledCols = 21;  // 128 px / 6 px font
 static const size_t kOledRows = 8;   // 64 px / 8 px font
 static const uint8_t kOledPageCount = 3;
+static const uint32_t kOledPagePeriodMs = 5000;  // automatic page rotation
+
+// Node 3 has no buttons: the OLED turns pages by itself, summary -> faults ->
+// bus, kOledPagePeriodMs each. While a commanded fault is set the page stays
+// on 0 (the commanded-fault view) so it is never hidden. At the 49.7-day
+// millis() wrap the rotation may skip one page once; nothing else is affected.
+uint8_t oled_page_for(uint32_t now_ms, bool commanded_active);
 
 struct OledLines {
   char line[kOledRows][kOledCols + 1];
@@ -93,16 +80,23 @@ struct OledInput {
   uint32_t rec;
   uint32_t rx_missed;
   uint32_t uptime_s;
-  bool buzzer_enabled;
-  bool buzzer_silenced;
   uint32_t now_ms;
+  const CommandedFaults* commanded;  // may be null
 };
 
-// Page 0 summary, 1 active faults, 2 bus statistics. Lines are space-padded
-// to exactly kOledCols characters.
+// Page 0 summary, 1 active faults, 2 bus statistics. While a commanded fault
+// is set (in.commanded->any()) page 0 shows the commanded-fault view instead
+// of the summary: "Node n:" and the readable fault name for each ECU, nothing
+// else. Detected faults, bus state and counts stay on the summary (when no
+// commanded fault is set), faults and bus pages. Lines are space-padded to
+// exactly kOledCols characters.
 void render_oled_page(uint8_t page, const OledInput& in, OledLines& out);
 
 // Short (<= 14 chars) label for the OLED.
 const char* fault_short_name(proto::FaultCode code);
+
+// Readable name of a commanded demo fault for the OLED (word-wrapped there,
+// at most 2 lines of kOledCols - 2 characters).
+const char* demo_fault_display_name(proto::DemoFault fault);
 
 }  // namespace canscope

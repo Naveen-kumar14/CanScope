@@ -151,7 +151,7 @@ export const LINES = {
   helloNode2:
     '{"type":"hello","sourceNode":"node2","deviceTimeUs":7,"nodeId":2,"role":"battery_ecu","firmware":"1.0.0","bootId":"0000beef","protocolVersion":1,"serialProtocolVersion":1,"commands":"hello status help recover set profile fault"}',
   helloMonitor:
-    '{"type":"hello","sourceNode":"monitor","deviceTimeUs":7,"nodeId":3,"role":"monitor","firmware":"1.0.0","bootId":"cafe0001","protocolVersion":1,"serialProtocolVersion":1,"commands":"hello status help recover faults frames silence"}',
+    '{"type":"hello","sourceNode":"monitor","deviceTimeUs":7,"nodeId":3,"role":"monitor","firmware":"1.0.0","bootId":"cafe0001","protocolVersion":1,"serialProtocolVersion":1,"commands":"hello status help recover faults frames display"}',
   ack: (node: string, id: string, status: string, command: string, detail: string, bootId = 'deadbeef') =>
     `{"type":"ack","sourceNode":"${node}","deviceTimeUs":42,"bootId":"${bootId}","id":"${id}","command":"${command}","status":"${status}","detail":"${detail}"}`,
   fault: (eventId: number, code: string, node: string, state: 'active' | 'cleared', severity = 'critical') =>

@@ -40,8 +40,6 @@ def ep_words(led, text):
         return f"the OLED pin printed {ep.pin}"
     if comps[ep.comp]["kind"] == "resistor":
         return f"{ep.comp}, the {name}, end {ep.pin}"
-    if comps[ep.comp]["kind"] == "button":
-        return f"{ep.comp} leg {ep.pin}"
     return f"{ep.comp} {pin}"
 
 
@@ -127,56 +125,46 @@ def build(led=None):
          "panel": bullets("Three nodes, one bus", [
              "Node 1: Motor ECU simulator (ESP1 + TRX1)",
              "Node 2: Battery ECU simulator (ESP2 + TRX2)",
-             "Node 3: CANScope monitor (ESP3 + TRX3, OLED, 3 LEDs, 2 buttons, buzzer)",
+             "Node 3: CANScope monitor (ESP3 + TRX3, OLED, status LEDs)",
              "One straight bus: end A - Node 1 - Node 2 - Node 3 - end B",
              "120 Ohm terminator at each physical end only"]),
          "narration": [
              "Node one is the motor ECU simulator. Node two is the battery ECU simulator.",
-             "Node three is the CANScope monitor, with an OLED display, three status LEDs, two buttons and a buzzer.",
+             "Node three is the CANScope monitor, with an OLED display and status LEDs.",
              "Each ESP32 talks to the bus through its own SN65HVD230 transceiver.",
              "The bus is one straight line: end A, Node one, Node two, Node three, end B.",
              "There is a 120 ohm terminator at each physical end, and nowhere else."], "power": OFF})
     add(card(1, "What is and is not verified", "Honest status before you start",
              [("Nothing here has been physically inspected or measured by Claude", "stop"),
               ("PROVISIONAL wires: allowed only after their bench gates pass", "warn"),
-              ("BLOCKED: buzzer transistor pinout (part number unknown)", "stop"),
-              ("Firmware today: CAN bring-up only. No OLED, LED, button or buzzer code yet", "warn"),
+              ("Firmware today: CAN bring-up only. No OLED or LED code yet", "warn"),
               ("No motor/battery simulation or fault injection in firmware yet", "warn"),
               ("A successful compile never proves the hardware works", "info")],
              ["Here is the honest status.",
               "No board, module or wire in this video has been physically inspected or measured.",
               "Most connections are provisional. You may make a provisional connection only after the bench "
               "checks, called gates, listed for it have passed.",
-              "The buzzer transistor connections are blocked, because the transistor part number is not known yet.",
-              "The current firmware only brings up CAN. It does not drive the OLED, LEDs, buttons or buzzer, and it "
+              "The current firmware only brings up CAN. It does not drive the OLED or LEDs, and it "
               "does not simulate the motor or battery or inject faults yet.",
               "So this video builds and checks the hardware. It does not claim the peripherals work."],
              tone="warn"))
     add(card(1, "Inventory", "Inventory and tools",
              [("3 x ESP32 DevKit V1 30-pin (ESP-WROOM-32)  |  3 x SN65HVD230 module", "info"),
               ("1 x SSD1306 0.96 in I2C OLED, 4-pin  |  1 each green, yellow, red LED", "info"),
-              ("3 x 220 Ohm (LEDs)  |  2 x 120 Ohm (bus ends)  |  2 x tactile button", "info"),
-              ("1 x 5 V active buzzer  |  2 x 830-point breadboard  |  Dupont jumpers", "info"),
+              ("3 x 220 Ohm (LEDs)  |  2 x 120 Ohm (bus ends)", "info"),
+              ("2 x 830-point breadboard  |  Dupont jumpers", "info"),
               ("3 x USB DATA cable (charge-only cables will not work)", "info"),
-              ("REQUIRED EXTRA: 1 x NPN transistor (e.g. PN2222A / 2N3904 / BC547 / S8050), 1 x 1 kOhm", "stop"),
-              ("REQUIRED TOOL: digital multimeter with continuity and diode test", "stop"),
-              ("RECOMMENDED: 1 x 10 kOhm (base pull-down); 1N4148 if the buzzer is electromagnetic", "warn")],
+              ("REQUIRED TOOL: digital multimeter with continuity and diode test", "stop")],
              ["Here is the inventory. Three ESP32 DevKit V1 thirty-pin boards and three SN65HVD230 transceiver "
               "modules.",
-              "One SSD1306 I2C OLED, three LEDs, three 220 ohm resistors, two 120 ohm resistors, two buttons and "
-              "one five volt active buzzer.",
+              "One SSD1306 I2C OLED, three LEDs, three 220 ohm resistors and two 120 ohm resistors.",
               "Two breadboards, jumper wires and three USB data cables.",
-              "You must add an NPN transistor and a one kilo-ohm base resistor. They are needed so that the "
-              "buzzer is never driven directly by a GPIO pin.",
-              "You also need a digital multimeter. Every gate in this video uses it.",
-              "A ten kilo-ohm pull-down is recommended, and a 1N4148 diode is needed only if your buzzer is "
-              "electromagnetic."]))
+              "You also need a digital multimeter. Every gate in this video uses it."]))
     add(card(1, "Safety", "Safety rules - read before touching a wire",
              [("All USB cables unplugged while wiring, measuring resistance or changing anything", "stop"),
               ("No external 5 V supply is used anywhere in this build", "stop"),
               ("Never connect CANH or CANL to an ESP32 pin", "stop"),
               ("Never put 5 V on a 3V3 pin or rail. Never join 3V3 of two nodes", "stop"),
-              ("Never drive the buzzer from a GPIO: transistor only", "stop"),
               ("Bench only: never connect this bus to a vehicle or a real network", "stop"),
               ("A BLOCKED step means STOP. Do not guess", "stop")],
              ["Safety rules. Unplug every USB cable before you wire, measure resistance, or change anything.",
@@ -184,7 +172,6 @@ def build(led=None):
               "Never connect CAN high or CAN low to an ESP32 pin. Only the transceiver touches the bus.",
               "Never put five volts on a three volt three pin, and never join the three volt three pins of two "
               "different nodes.",
-              "Never drive the buzzer straight from a GPIO pin.",
               "This is a bench simulator. Never connect it to a vehicle or to a real network.",
               "If a step is marked blocked, stop. Do not guess."], tone="stop"))
     add(card(1, "Status legend and gates", "How to read every wiring step",
@@ -253,29 +240,16 @@ def build(led=None):
                "volt three.",
                "Gate G9: the LED's long leg is the anode. The short leg, next to the flat edge, is the cathode. "
                "Confirm with the meter's diode test."]))
-    add(sheet(2, "Buttons and resistors", "03_parts_identification", gates_panel("G8", "G13"),
-              ["Gate G8: on a four-leg button, two diagonally opposite legs are always on different contacts, "
-               "whichever way you turn it.",
-               "Check with the meter. The diagonal legs must be open when released and closed when pressed.",
-               "Gate G13: measure every resistor before you insert it. Colour bands are easy to misread."]))
-    add(sheet(2, "Buzzer and transistor", "03_parts_identification", gates_panel("G10", "G11"),
-              ["Gate G11: confirm the buzzer is active, rated five volts, takes thirty milliamps or less, and "
-               "find its plus leg.",
-               "Gate G10: the transistor is blocked. Different transistors have different leg orders. For "
-               "example, the PN2222A is emitter, base, collector, but the BC547 is collector, base, emitter.",
-               "Read your transistor's marking and look up its own datasheet. Until that is recorded, the "
-               "transistor connections stay blocked."]))
+    add(sheet(2, "Resistors", "03_parts_identification", gates_panel("G13"),
+              ["Gate G13: measure every resistor before you insert it. Colour bands are easy to misread."]))
     add(card(2, "Unresolved items", "Resolve or record these before wiring",
              [("Photo of each ESP32 shield marking and both headers (G1, G2)", "warn"),
               ("Photo of each transceiver, front and back, with labels (G4, G5)", "warn"),
               ("Onboard terminator reading of each transceiver (G6)", "warn"),
-              ("OLED label order and address (G7)", "warn"),
-              ("Transistor part number and E-B-C order (G10) - BLOCKED until supplied", "stop"),
-              ("Buzzer type, rating and polarity (G11)", "warn")],
+              ("OLED label order and address (G7)", "warn")],
              ["Before wiring, record or photograph these items.",
               "The ESP32 shield marking and headers, both sides of each transceiver, the onboard terminator "
-              "reading, the OLED labels, the transistor part number and the buzzer details.",
-              "The transistor item is blocked until you supply it."], tone="warn"))
+              "reading and the OLED labels."], tone="warn"))
 
     # ------------------------------------------------------------------ scenes 3 and 4
     for node, scene in ((1, 3), (2, 4)):
@@ -324,7 +298,7 @@ def build(led=None):
     s = 5
     add(sheet(s, "Place Node 3", "04_breadboard_placement", gates_panel("G3", "G14"),
               ["Node three has breadboard B to itself. Seat ESP3 in columns one to fifteen.",
-               "Put TRX3 and the OLED in the lower half, the buzzer driver, LEDs and buttons in the upper half.",
+               "Put TRX3 and the OLED in the lower half and the LEDs in the upper half.",
                "Gate G14: check each rail with the meter from end to end. Some breadboards split their rails in "
                "the middle.",
                "On breadboard B, the bottom plus rail is 3V3 for Node three only. Both minus rails are ground."]))
@@ -352,7 +326,7 @@ def build(led=None):
                                                          "current": None},
          "panel": bullets("Three separate LED circuits", [
              "GPIO -> its own 220 Ohm -> LED anode; cathode -> GND",
-             "Green GPIO25, yellow GPIO26, red GPIO27",
+             "Yellow GPIO26, red GPIO27; green: no verified pin (N3-14 BLOCKED)",
              "Current about (3.3 - 2.0) / 220 = 6 mA each",
              "Never share one resistor between LEDs"]),
          "narration": ["Each LED gets its own 220 ohm resistor. Never share one resistor between LEDs.",
@@ -360,49 +334,15 @@ def build(led=None):
                        "The current is about six milliamps, well within the pin's limit."], "power": OFF})
     for cid in ("N3-14", "N3-15", "N3-16", "N3-17", "N3-18", "N3-19", "N3-20", "N3-21", "N3-22"):
         n3(cid)
-    add({"scene": s, "title": "Buttons", "visual": {"type": "node", "node": 3, "done": list(done3),
-                                                    "current": None},
-         "panel": gates_panel("G8"),
-         "narration": ["Place each button across the centre trench.",
-                       "The GPIO goes to leg L1 and ground goes to the diagonally opposite leg L3.",
-                       "Firmware will use the internal pull-up, so the pin reads low when pressed. That firmware "
-                       "does not exist yet."], "power": OFF})
-    for cid in ("N3-23", "N3-24", "N3-25", "N3-26"):
-        n3(cid)
-    add({"scene": s, "title": "Buzzer driver design", "visual": {"type": "node", "node": 3, "done": list(done3),
-                                                                 "current": None},
-         "panel": bullets("Low-side NPN switch (reviewed)", [
-             "GPIO13 -> 1 kOhm -> base: Ib = (3.3 - 0.75) / 1000 = 2.6 mA",
-             "Buzzer <= 30 mA: forced gain about 12, saturates",
-             "10 kOhm base -> GND keeps it silent at boot",
-             "Buzzer + from Node 3 VIN (USB 5 V); - to collector",
-             "Emitter -> GND.  GPIO never touches the buzzer",
-             "Q1 pin order BLOCKED until part is read (G10)"], "stop"),
-         "narration": ["The buzzer needs five volts, so a GPIO cannot drive it directly. A small NPN transistor "
-                       "switches its low side.",
-                       "GPIO thirteen drives the base through one kilo-ohm, about two point six milliamps, enough "
-                       "to switch thirty milliamps.",
-                       "A ten kilo-ohm resistor from base to ground keeps the buzzer quiet while the ESP32 boots.",
-                       "The buzzer's plus side takes five volts from Node three's own VIN pin, later. Its minus side "
-                       "goes to the collector, and the emitter goes to ground.",
-                       "The transistor's leg order is still blocked, so the transistor connections are not made "
-                       "now."], "power": OFF})
-    n3("N3-27", extra=["Double check: pin D13 is the third pin from USB. The fourth pin, D12, is a strapping pin "
-                       "and must stay empty."])
-    for cid in ("N3-28", "N3-29", "N3-30", "N3-31", "N3-32"):
-        n3(cid)
-    for cid in ("N3-33", "N3-34"):
-        n3(cid)
-    add({"scene": s, "title": "Node 3 complete (buzzer supply deferred)",
+    add({"scene": s, "title": "Node 3 complete",
          "visual": {"type": "node", "node": 3, "done": list(done3), "current": None},
          "panel": bullets("State of Node 3", [
              "All PROVISIONAL wires placed (after their gates)",
-             "Dashed red: Q1 connections NOT made (BLOCKED)",
-             "N3-35 (VIN -> buzzer +) NOT installed yet",
+             "Dashed red: N3-14 (green LED) NOT wired (BLOCKED, no verified pin)",
+             "No buttons and no buzzer on this build",
              "Terminator RT2 comes in the bus scene"], "warn"),
-         "narration": ["Node three is wired, except for the blocked transistor connections and the buzzer supply.",
-                       "The buzzer supply wire, N3-35, is installed only after the first power-up check, and only "
-                       "once the transistor is resolved."], "power": OFF})
+         "narration": ["Node three is wired, except for the green LED, whose pin is not verified.",
+                       "This build has no buttons and no buzzer."], "power": OFF})
 
     # ------------------------------------------------------------------ scene 6
     s = 6
@@ -489,17 +429,15 @@ def build(led=None):
                        "onboard one.",
                        "Record the value. Do not add resistors to fix a reading until you know why it is wrong."],
          "power": OFF})
-    add({"scene": s, "title": "Buzzer and 5 V checks", "visual": {"type": "node", "node": 3, "done": list(done3),
-                                                                  "current": None},
+    add({"scene": s, "title": "5 V checks", "visual": {"type": "node", "node": 3, "done": list(done3),
+                                                       "current": None},
          "panel": bullets("Final safety checks", [
-             "D13 connects only to R_B: no path to BZ1",
-             "BZ1 + has no wire yet (N3-35 deferred)",
+             "VIN has no wire at all (nothing uses 5 V)",
              "VIN has no wire to any 3V3 pin or rail",
              "Node 1 3V3 and Node 2 3V3: no continuity to each other",
              "D12 (strapping) and all unused pins empty"], "stop"),
-         "narration": ["Last checks. GPIO thirteen must connect only to the base resistor, never to the buzzer.",
-                       "The buzzer's plus leg has no wire yet.",
-                       "VIN must have no wire to any three volt three point.",
+         "narration": ["Last checks. Nothing is wired to VIN, and VIN must have no wire to any three volt three "
+                       "point.",
                        "And the three volt three pins of Node one and Node two must not be connected to each "
                        "other."], "power": OFF})
 
@@ -531,18 +469,10 @@ def build(led=None):
         if node == 2:
             nar.append("Node two alone will report transmit errors, because no other node is powered to "
                        "acknowledge its frames. That is expected at this stage.")
-        if node == 3:
-            items.insert(5, "Gate G12: measure VIN to GND: 4.4 - 5.25 V")
-            nar.append("On Node three, also measure VIN to ground. This is gate G12. It must be between four "
-                       "point four and five point two five volts.")
         nar.append("Then unplug it.")
         add({"scene": s, "title": f"Node {node} alone", "visual": {"type": "measure", "kind": f"power{node}"},
              "panel": bullets(f"Node {node} single power-up", items, "warn"), "narration": nar,
              "power": f"Node {node} USB ONLY"})
-    add(wire_step(led, C["N3-35"], s, "N3-35 (deferred)",
-                  {"type": "node", "node": 3, "done": list(done3), "current": "N3-35"},
-                  extra=["Today this wire stays OUT: the buzzer driver is blocked until the transistor is "
-                         "identified. Install it later only with all power off, after G10, G11 and G12 pass."]))
 
     # ------------------------------------------------------------------ scene 9
     s = 9
@@ -574,10 +504,10 @@ def build(led=None):
              "Both terminators stay where they are",
              "Node 3 serial: the same frame IDs",
              "Node 3 never transmits and never ACKs",
-             "OLED / LEDs / buttons stay dark: no firmware yet"], "warn"),
+             "OLED / LEDs stay dark: no firmware yet"], "warn"),
          "narration": ["Now plug in Node three. Nothing is rewired, and both terminators stay at the two ends.",
                        "Node three's monitor firmware is listen-only. It should print the same frame IDs.",
-                       "The OLED, LEDs and buttons will do nothing yet, because no firmware drives them. That is "
+                       "The OLED and LEDs will do nothing yet, because no firmware drives them. That is "
                        "expected, not a fault."], "power": "All three USB"})
 
     # ------------------------------------------------------------------ scene 10
@@ -594,14 +524,14 @@ def build(led=None):
                "info"),
               ("NOT done by Claude: any physical inspection, measurement or power-up", "stop"),
               ("Verified only by YOU, when recorded: gates G1-G14, 60 Ohm reading, frame capture", "warn"),
-              ("Still BLOCKED: Q1 transistor pinout (N3-28..N3-32), buzzer supply N3-35", "stop"),
-              ("Firmware still missing: OLED, LEDs, buttons, buzzer, simulations, fault injection", "warn")],
+              ("Still BLOCKED: green LED N3-14 (no verified pin)", "stop"),
+              ("Firmware still missing: OLED, LEDs, simulations, fault injection", "warn")],
              ["To be clear about what has been tested.",
               "The documents, the pin ledger and the firmware pin settings were checked against each other. No "
               "hardware was inspected, measured or powered by Claude.",
               "Each gate, the 60 ohm reading and the frame capture become verified only when you record them.",
-              "The transistor connections and the buzzer supply are still blocked, and the peripheral firmware "
-              "still has to be written.",
+              "The green LED connection is still blocked, and the peripheral firmware still has to be "
+              "written.",
               "Thank you for building carefully."], tone="warn"))
     for i, st in enumerate(steps):
         st["seq"] = i + 1

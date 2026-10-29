@@ -3,6 +3,10 @@
 Source of truth for Node 3 wiring. Firmware counterpart: `firmware/node3/include/node3_hw_config.h`.
 
 > **2026-10-16:** the physical build now uses the canonical ledger `docs/wiring/pin_ledger.json` (Rev 2.0-draft), which proposes Node 3 = CANScope monitor hardware with CAN TX GPIO17 / RX GPIO16, OLED SDA 21 / SCL 22, LEDs 25/26/27, buttons 32/33, buzzer drive 13. Those are **PROVISIONAL** (bench gates pending), not verified. See `validation/correction_register.md` C01 and C06.
+>
+> **2026-10-28:** confirmed on the physical board: Button A on D25 (GPIO25), buzzer drive on D32 (GPIO32, base of Q1 through 1 kOhm only). The green LED had been on GPIO25 and now has no pin (ledger N3-14 BLOCKED, firmware `MONITOR_LED_GREEN_GPIO -1`). The buzzer stays disabled until gates G10, G11 and G12 are recorded.
+>
+> **2026-10-28 (later):** push-buttons and the buzzer were removed from Node 3 entirely (firmware, ledger rows N3-23..N3-35, gates G8, G10, G11, G12). GPIO25, GPIO32 and GPIO33 are unused. The green LED stays disabled until its GPIO is independently verified.
 
 **Every row is UNVERIFIED.** No Node 3 schematic, component list, photo or measurement is available yet. Do not power Node 3 peripherals based on this table until the rows have evidence.
 

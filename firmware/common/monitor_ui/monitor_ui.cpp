@@ -8,48 +8,6 @@ namespace canscope {
 
 using proto::FaultCode;
 
-// ------------------------------------------------------------------- Button
-
-Button::Button(uint32_t debounce_ms, uint32_t long_press_ms)
-    : debounce_ms_(debounce_ms),
-      long_press_ms_(long_press_ms),
-      stable_(false),
-      last_raw_(false),
-      changed_at_(0),
-      pressed_at_(0),
-      long_fired_(false) {}
-
-void Button::reset(bool raw_pressed, uint32_t now_ms) {
-  stable_ = raw_pressed;
-  last_raw_ = raw_pressed;
-  changed_at_ = now_ms;
-  pressed_at_ = now_ms;
-  long_fired_ = raw_pressed;  // a button held at reset never fires
-}
-
-Button::Event Button::update(bool raw_pressed, uint32_t now_ms) {
-  if (raw_pressed != last_raw_) {
-    last_raw_ = raw_pressed;
-    changed_at_ = now_ms;
-  }
-  if (raw_pressed != stable_ && now_ms - changed_at_ >= debounce_ms_) {
-    stable_ = raw_pressed;
-    if (stable_) {
-      pressed_at_ = now_ms;
-      long_fired_ = false;
-    } else {
-      const bool was_long = long_fired_;
-      long_fired_ = false;
-      if (!was_long) return Event::ShortPress;
-    }
-  }
-  if (stable_ && !long_fired_ && now_ms - pressed_at_ >= long_press_ms_) {
-    long_fired_ = true;
-    return Event::LongPress;
-  }
-  return Event::None;
-}
-
 // --------------------------------------------------------------------- LEDs
 
 LedState compute_leds(const IndicatorInput& in, uint32_t now_ms) {
@@ -77,43 +35,75 @@ bool lamp_test(uint32_t elapsed_ms, LedState& out) {
   return elapsed_ms < 750;
 }
 
-// ------------------------------------------------------------------- Buzzer
+// --------------------------------------------------------- commanded faults
+
+CommandedFaults::CommandedFaults() { clear_all(); }
+
+bool CommandedFaults::set(uint8_t node_id, proto::DemoFault fault) {
+  if (node_id != proto::kNodeIdNode1 && node_id != proto::kNodeIdNode2) return false;
+  fault_[node_id - 1] = fault;
+  return true;
+}
+
+void CommandedFaults::clear_all() {
+  fault_[0] = proto::DemoFault::None;
+  fault_[1] = proto::DemoFault::None;
+}
+
+proto::DemoFault CommandedFaults::get(uint8_t node_id) const {
+  if (node_id != proto::kNodeIdNode1 && node_id != proto::kNodeIdNode2) return proto::DemoFault::None;
+  return fault_[node_id - 1];
+}
+
+bool CommandedFaults::any() const {
+  return fault_[0] != proto::DemoFault::None || fault_[1] != proto::DemoFault::None;
+}
 
 namespace {
-const uint32_t kBeepMs = 150;
-const uint32_t kBeeps = 3;
-const uint32_t kAlarmRepeatMs = 10000;
+
+bool parse_ecu(const char* name, uint8_t& node_id) {
+  if (strcmp(name, "node1") == 0) {
+    node_id = proto::kNodeIdNode1;
+  } else if (strcmp(name, "node2") == 0) {
+    node_id = proto::kNodeIdNode2;
+  } else {
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
-Buzzer::Buzzer()
-    : alarm_(false), silenced_(false), alarm_start_ms_(0), chirp_active_(false), chirp_until_ms_(0) {}
-
-void Buzzer::on_new_critical(uint32_t now_ms) {
-  alarm_ = true;
-  silenced_ = false;
-  alarm_start_ms_ = now_ms;
-}
-
-void Buzzer::chirp(uint32_t now_ms, uint32_t duration_ms) {
-  chirp_active_ = true;
-  chirp_until_ms_ = now_ms + duration_ms;
-}
-
-void Buzzer::silence() {
-  silenced_ = true;
-  chirp_active_ = false;
-}
-
-bool Buzzer::output(bool critical_active, uint32_t now_ms) {
-  if (chirp_active_) {
-    if (static_cast<int32_t>(now_ms - chirp_until_ms_) < 0) return true;
-    chirp_active_ = false;
+AckStatus apply_display_command(CommandedFaults& commanded, const Command& cmd, const char** detail) {
+  uint8_t node = 0;
+  if (cmd.argc == 1 && strcmp(cmd.args[0], "clear") == 0) {
+    commanded.clear_all();
+    *detail = "OLED: commanded faults cleared (display only)";
+    return AckStatus::Ok;
   }
-  if (!critical_active) alarm_ = false;
-  if (!alarm_ || silenced_) return false;
-  const uint32_t t = (now_ms - alarm_start_ms_) % kAlarmRepeatMs;
-  if (t >= kBeeps * 2 * kBeepMs) return false;
-  return (t / kBeepMs) % 2 == 0;
+  if (cmd.argc == 2 && strcmp(cmd.args[0], "clear") == 0 && parse_ecu(cmd.args[1], node)) {
+    commanded.set(node, proto::DemoFault::None);
+    *detail = "OLED: commanded fault cleared (display only)";
+    return AckStatus::Ok;
+  }
+  if (cmd.argc == 3 && strcmp(cmd.args[0], "fault") == 0 && parse_ecu(cmd.args[1], node)) {
+    proto::DemoFault fault = proto::DemoFault::None;
+    if (!proto::parse_demo_fault(cmd.args[2], fault)) {
+      *detail = "unknown demo fault";
+      return AckStatus::Rejected;
+    }
+    const bool same = commanded.get(node) == fault;
+    commanded.set(node, fault);
+    if (fault == proto::DemoFault::None) {
+      *detail = "OLED: commanded fault cleared (display only)";
+    } else {
+      *detail = same ? "OLED: commanded fault already shown (display only, not a detection)"
+                     : "OLED: commanded fault shown (display only, not a detection)";
+    }
+    return AckStatus::Ok;
+  }
+  *detail = "usage: display fault node1|node2 <demo fault> | display clear [node1|node2]";
+  return AckStatus::Rejected;
 }
 
 // --------------------------------------------------------------------- OLED
@@ -216,7 +206,7 @@ void summary(const OledInput& in, OledLines& out) {
   }
   put(out, 5, "F:%u %s %s", static_cast<unsigned>(n), where, first);
   put(out, 6, "%s rx%lu", bus_text(in.bus_state), static_cast<unsigned long>(c.total_frames()));
-  put(out, 7, "A:page B:%s", !in.buzzer_enabled ? "mute(off)" : (in.buzzer_silenced ? "muted" : "silence"));
+  put(out, 7, "up %lus", static_cast<unsigned long>(in.uptime_s));
 }
 
 void faults_page(const OledInput& in, OledLines& out) {
@@ -243,6 +233,49 @@ void faults_page(const OledInput& in, OledLines& out) {
   for (; row < kOledRows; ++row) put(out, row, "");
 }
 
+// Commanded-fault view: only the ECUs the dashboard commanded a fault on and
+// the readable fault names, e.g. "Node 1:" / "  HEARTBEAT LOST". It reads
+// CommandedFaults only; MonitorCore's detections, the bus state and the fault
+// counts stay on the summary, faults and bus pages.
+const size_t kNameIndent = 2;
+const size_t kMaxNameLines = 2;
+
+// Splits `text` at spaces into lines of at most `width` characters (a word
+// longer than `width` is cut). Returns the number of lines written.
+size_t wrap(const char* text, size_t width, char lines[][kOledCols + 1], size_t max_lines) {
+  size_t count = 0;
+  const char* p = text;
+  while (*p && count < max_lines) {
+    while (*p == ' ') ++p;
+    if (!*p) break;
+    size_t take = strlen(p);
+    if (take > width) {
+      take = width;
+      while (take > 0 && p[take] != ' ') --take;
+      if (take == 0) take = width;
+    }
+    memcpy(lines[count], p, take);
+    lines[count][take] = '\0';
+    ++count;
+    p += take;
+  }
+  return count;
+}
+
+// Two ECUs x (1 label + 2 name lines) + 1 blank separator = 7 rows <= 8.
+void commanded_view(const CommandedFaults& cf, OledLines& out) {
+  size_t row = 0;
+  for (uint8_t node = proto::kNodeIdNode1; node <= proto::kNodeIdNode2; ++node) {
+    const proto::DemoFault f = cf.get(node);
+    if (f == proto::DemoFault::None) continue;
+    if (row > 0) ++row;  // blank line between ECUs
+    char lines[kMaxNameLines][kOledCols + 1];
+    const size_t n = wrap(demo_fault_display_name(f), kOledCols - kNameIndent, lines, kMaxNameLines);
+    put(out, row++, "Node %u:", static_cast<unsigned>(node));
+    for (size_t l = 0; l < n; ++l) put(out, row++, "  %s", lines[l]);
+  }
+}
+
 void bus_page(const OledInput& in, OledLines& out) {
   const MonitorCore& c = *in.core;
   put(out, 0, "BUS %s", bus_text(in.bus_state));
@@ -260,10 +293,21 @@ void bus_page(const OledInput& in, OledLines& out) {
 
 }  // namespace
 
+uint8_t oled_page_for(uint32_t now_ms, bool commanded_active) {
+  if (commanded_active) return 0;
+  return static_cast<uint8_t>((now_ms / kOledPagePeriodMs) % kOledPageCount);
+}
+
 void render_oled_page(uint8_t page, const OledInput& in, OledLines& out) {
   for (size_t r = 0; r < kOledRows; ++r) put(out, r, "");
   switch (page % kOledPageCount) {
-    case 0: summary(in, out); break;
+    case 0:
+      if (in.commanded && in.commanded->any()) {
+        commanded_view(*in.commanded, out);
+      } else {
+        summary(in, out);
+      }
+      break;
     case 1: faults_page(in, out); break;
     default: bus_page(in, out); break;
   }
@@ -292,6 +336,22 @@ const char* fault_short_name(FaultCode code) {
     case FaultCode::MonitorRxOverrun: return "RX OVERRUN";
     case FaultCode::BusSilent: return "BUS SILENT";
     case FaultCode::Count: break;
+  }
+  return "?";
+}
+
+const char* demo_fault_display_name(proto::DemoFault fault) {
+  switch (fault) {
+    case proto::DemoFault::None: return "NONE";
+    case proto::DemoFault::HeartbeatStop: return "HEARTBEAT LOST";
+    case proto::DemoFault::TelemetryStop: return "TELEMETRY LOST";
+    case proto::DemoFault::Silent: return "ECU SILENT";
+    case proto::DemoFault::InvalidValue: return "INVALID VALUE";
+    case proto::DemoFault::BadDlc: return "BAD FRAME LENGTH";
+    case proto::DemoFault::BadChecksum: return "BAD CHECKSUM";
+    case proto::DemoFault::CounterFreeze: return "COUNTER FROZEN";
+    case proto::DemoFault::BadVersion: return "PROTOCOL VERSION MISMATCH";
+    case proto::DemoFault::Count: break;
   }
   return "?";
 }

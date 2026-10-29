@@ -588,7 +588,7 @@ export const COMMON_COMMANDS = [
 export const MONITOR_COMMANDS = [
   "faults",
   "frames",
-  "silence"
+  "display"
 ] as const;
 
 export type NodeName = (typeof NODES)[number]['name'];

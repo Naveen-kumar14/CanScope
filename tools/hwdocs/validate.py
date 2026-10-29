@@ -28,7 +28,7 @@ def run():
         results.append((name, bool(ok), detail))
 
     probs = L.validate(led)
-    check("Ledger structure and safety rules (CAN-to-GPIO, GPIO-to-buzzer, 3V3 joins, VIN-to-3V3, "
+    check("Ledger structure and safety rules (CAN-to-GPIO, one wire per GPIO, 3V3 joins, VIN-to-3V3, "
           "strapping/flash/input-only pins, exactly two end terminators)", not probs, "; ".join(probs))
 
     fw = L.firmware_check(led)

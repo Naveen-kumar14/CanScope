@@ -25,7 +25,7 @@ SHEETS = {
 TITLES = {
     "05_node1_wiring": "Node 1 (Motor ECU) wiring - ledger N1-01..N1-06",
     "06_node2_wiring": "Node 2 (Battery ECU) wiring - ledger N2-01..N2-04",
-    "07_node3_wiring": "Node 3 (CANScope monitor) wiring - ledger N3-01..N3-35",
+    "07_node3_wiring": "Node 3 (CANScope monitor) wiring - ledger N3-01..N3-22",
     "08_can_bus_trunk": "CAN bus trunk and termination - ledger B-01..B-06, RT1, RT2",
 }
 

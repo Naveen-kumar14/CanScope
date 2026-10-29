@@ -23,6 +23,9 @@ const FW = {
     '{"type":"frame","sourceNode":"monitor","deviceTimeUs":12,"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":8,"data":[0,0,0,0,0,0,0,222],"busState":"error_active","txErrorCount":0,"rxErrorCount":0,"kind":"motor_telemetry","check":"ok","accepted":true}',
   ecuState:
     '{"type":"ecu_state","sourceNode":"node2","deviceTimeUs":4,"bootId":"00c0ffee","role":"battery_ecu","canRunning":true,"busState":"error_active","profile":"static","demoFault":"bad_dlc","setpoint":{"packVoltageV":41.50,"packCurrentA":12.0,"socPct":85},"sent":{"packVoltageV":41.50,"packCurrentA":12.0,"socPct":85},"telemetryFrames":1,"heartbeatFrames":1,"txOk":2,"txFailed":0,"rxIgnored":5}',
+  // firmware/monitor/src/main.cpp print_selftest(): Node 3 has no buttons and no buzzer.
+  selftest:
+    '{"type":"selftest","sourceNode":"monitor","deviceTimeUs":5,"bootId":"cafe0001","can":"ok","oled":"ok@0x3C","leds":"driven (visual check required)"}',
 };
 
 const ev = (line: string) => {
@@ -42,6 +45,14 @@ describe('parseSerialLine: protocol v1 device lines', () => {
     expect(ev(FW.faults)).toMatchObject({ type: 'faults', active: [], truncated: false });
     expect(ev(FW.frame)).toMatchObject({ canId: '0x120', check: 'ok', accepted: true, verified: true });
     expect(ev(FW.ecuState)).toMatchObject({ demoFault: 'bad_dlc', setpoint: { packVoltageV: 41.5 }, txOk: 2 });
+    expect(ev(FW.selftest)).toEqual(
+      expect.objectContaining({ type: 'selftest', bootId: 'cafe0001', can: 'ok', oled: 'ok@0x3C', leds: 'driven (visual check required)' }),
+    );
+    expect(Object.keys(ev(FW.selftest))).not.toEqual(expect.arrayContaining(['buttonA', 'buttonB', 'buzzer']));
+    // An older monitor that still reports buttons/buzzer parses too; those fields are dropped.
+    const old = FW.selftest.replace('"leds"', '"buttonA":"released","buttonB":"released","buzzer":"disabled_by_build","leds"');
+    expect(Object.keys(ev(old))).not.toContain('buzzer');
+    expect(bad(FW.selftest.replace(',"oled":"ok@0x3C"', ''))).toMatchObject({ reason: 'selftest: missing oled' });
   });
 
   it('rejects malformed or inconsistent lines instead of guessing', () => {

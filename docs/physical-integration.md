@@ -8,7 +8,7 @@ This is the software procedure for the real three-board CANScope. Wiring is in t
 |---|---|---|---|
 | ESP32 #1 | Node 1, Motor ECU | `firmware/node1` env `node1` | `node1` |
 | ESP32 #2 | Node 2, Battery ECU | `firmware/node2` env `node2` | `node2` |
-| ESP32 #3 | Node 3, CANScope Monitor (OLED, LEDs, buttons, buzzer) | `firmware/monitor` env `monitor` | `monitor` |
+| ESP32 #3 | Node 3, CANScope Monitor (OLED, LEDs) | `firmware/monitor` env `monitor` | `monitor` |
 
 `firmware/node3` is the earlier scaffold, which refuses to start CAN. **Do not flash it on Node 3.**
 
@@ -28,7 +28,7 @@ The dashboard needs Node.js 20+ and **Chrome or Edge** (desktop), because they p
 pio run -d firmware/node1 -e node1
 pio run -d firmware/node2 -e node2
 pio run -d firmware/monitor -e monitor
-sh tools/build-firmware.sh                # all targets, incl. legacy sketches and monitor_buzzer
+sh tools/build-firmware.sh                # all targets, incl. legacy sketches
 ```
 
 A successful build proves only that the code compiles.
@@ -74,7 +74,7 @@ Without a transceiver, or with no other node on the bus, an ECU's frames are nev
 On the monitor, also check:
 
 - the `# OLED:` line (`SSD1306 initialised at 0x3C` or `0x3D`)
-- `{"type":"selftest",...}`: `buttonA`/`buttonB` should be `released`, `buzzer` is `disabled_by_build (gate G10)`
+- `{"type":"selftest",...}`: `can` and `oled` results
 - the LEDs: a green → yellow → red lamp test right after reset
 
 **Close the monitor (Ctrl+C) before using the dashboard.**
@@ -122,6 +122,8 @@ Use the **Fault testing** tab; each ECU card has *Inject* / *Clear fault* and *S
 
 The pass criterion is the *Faults detected by Node 3* column, which comes from CAN. The *Requested faults vs. detection* card shows what was requested and ticks each expected detection only once Node 3 reports it.
 
+When the ECU acknowledges *Inject*, the dashboard also sends `display fault <ecu> <fault>` to Node 3 over Node 3's own USB port. The OLED summary page is then replaced by the commanded-fault view, for example `Node 1:` / `HEARTBEAT LOST`, with both ECUs listed when both have a fault. *Clear fault* sends `display clear <ecu>` for that ECU only. The summary returns when no commanded fault is left. This works with the CAN bus disconnected, because it uses USB only. It is display only: it is not a detection, and it never appears in *Faults detected by Node 3*. In the command log, the `display` row shows *OLED updated* only after Node 3 acknowledges it. *unsupported* means Node 3 runs firmware without the command (reflash `firmware/monitor`). *not sent* means Node 3 was not connected; the current state is sent again once it reconnects.
+
 | Test (Node 1, then repeat on Node 2) | Expected Node 3 detection | Recovery after *Clear fault* |
 |---|---|---|
 | `heartbeat_stop` | HEARTBEAT_LOST after ~1.5 s; telemetry stays current | cleared at next heartbeat |
@@ -143,11 +145,10 @@ Peripherals on Node 3:
 
 | Check | Expected |
 |---|---|
-| Button A short press | OLED page Summary → Faults → Bus. Serial `# button A: OLED page n` |
-| Button B short press | `# button B: alarm silenced` |
-| Button B long press (≥ 1.5 s), bus healthy | `# button B long press: controller is not bus-off` (correctly refused) |
-| LEDs | green = all healthy; yellow = worst fault is a warning; red = a critical fault; red fast blink = monitor CAN not running / bus-off |
-| Buzzer | **disabled** until gate G10 (Q1 part and E/B/C) passes. Then flash `pio run -d firmware/monitor -e monitor_buzzer -t upload --upload-port COMx`: a chirp at boot, 3 beeps on each new critical fault every 10 s, silenced by button B or the *Silence alarm* control |
+| OLED pages | rotate by themselves every 5 s: Summary → Faults → Bus. While a commanded fault is set, the commanded-fault view stays on screen |
+| `recover` (serial / dashboard *Recover from bus-off*), bus healthy | ack `rejected`: `controller is not bus-off` (correctly refused) |
+| LEDs | yellow = worst fault is a warning; red = a critical fault; red fast blink = monitor CAN not running / bus-off. Green (all healthy) has no verified pin on this build: ledger N3-14 BLOCKED |
+| Buttons, buzzer | none on this build. GPIO25, GPIO32 and GPIO33 are not configured by the firmware |
 
 Bus-off is not forced by software. If a controller does go bus-off (a wiring fault, a wrong bit rate on one node), its `status.busState` shows `bus_off`. Fix the cause with power off, power up, then use *Recover from bus-off* (or Node 3 button B long press).
 
@@ -166,13 +167,12 @@ Bus-off is not forced by software. If a controller does go bus-off (a wiring fau
 | `error_passive` / bus errors on every node | missing/extra terminator, bit-rate mismatch, long or untwisted wires |
 | `MONITOR_RX_OVERRUN` | the USB link cannot keep up: use `frames off` (raw frame lines off; telemetry and faults continue) |
 | OLED `not_found` | VCC/GND/SDA(21)/SCL(22), module address; the monitor retries every 10 s |
-| Button reads `pressed_at_boot` | button wired to the wrong row or leg (should connect GPIO to GND only when pressed) |
 | Dashboard: `Web Serial is not available` | use Chrome/Edge and `http://localhost` (not a `file://` page or a LAN IP over http) |
 
 ## 10. Hardware tests still required (none done)
 
 1. Flash each board (sections 3–4) and capture its boot log into `captures/`.
-2. Bench gates G1–G14 from the ledger, in particular G4/G5 (transceiver pins, Rs), G6 (onboard terminators, 60 Ω), G7 (OLED address), G8 (button legs), G9 (LED polarity), **G10 (Q1 part/pinout: the buzzer stays disabled until this passes)**.
+2. Bench gates G1–G14 from the ledger, in particular G4/G5 (transceiver pins, Rs), G6 (onboard terminators, 60 Ω), G7 (OLED address), G9 (LED polarity).
 3. Section 5 serial checks on each bare board, including one command ack.
 4. Section 7 bring-up A, B and C: the first real capture of protocol v1 frames. Save a log. After this, the registry status of `0x120/0x220/0x701/0x702` can move from "specified" to "captured".
 5. Every row of the section 8 tables, on both ECUs.

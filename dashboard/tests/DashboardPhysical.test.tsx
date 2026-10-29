@@ -46,7 +46,8 @@ describe('DashboardPage in physical mode', () => {
     expect(screen.getByTestId('observed-node1-unavailable')).toHaveTextContent('Node 3 (monitor) is not connected');
     expect(screen.getByTestId('faults-unavailable')).toHaveTextContent('fault detection status is unknown');
     expect(screen.getByTestId('status-traffic')).toHaveTextContent('Unknown — Node 3 not connected');
-    expect(screen.getByTestId('finding-no-usb')).toBeInTheDocument();
+    expect(screen.queryByText('CAN link check')).toBeNull();  // section removed from the Overview
+    expect(screen.queryByTestId('finding-no-usb')).toBeNull();
     openTab('faults');
     for (const n of ['node1', 'node2', 'monitor']) {
       expect(screen.getByTestId(`offline-${n}`)).toBeInTheDocument();
@@ -80,6 +81,115 @@ describe('DashboardPage in physical mode', () => {
     expect(screen.getByTestId(`cmd-state-${id}`)).toHaveTextContent('waiting for ack');
     await t.emit(port, LINES.ack('node1', id, 'ok', 'set rpm 3000', 'rpm=3000'));
     expect(screen.getByTestId(`cmd-state-${id}`)).toHaveTextContent('acknowledged');
+  });
+
+  it('shows example frames apart from real data while Node 3 has received none, and replaces them with real frames', async () => {
+    const t = await setup();
+    const mon = new FakePort();
+    await t.add(mon);
+    await t.emit(mon, LINES.helloMonitor, STATUS_MONITOR.replace('"rxFrames":5', '"rxFrames":0'), FAULTS_NONE);
+    openTab('traffic');
+    const examples = screen.getByTestId('example-frames');
+    expect(within(examples).getByTestId('example-frames-note')).toHaveTextContent('Not received from the bus');
+    for (const id of ['0x120', '0x220', '0x701', '0x702']) expect(within(examples).getByTestId(`example-${id}`)).toBeInTheDocument();
+    // Kept out of the real data: no real frame table, RX count 0, nothing sent, no fault.
+    expect(screen.queryByTestId('frame-table')).toBeNull();
+    expect(screen.getByTestId('frames-none')).toHaveTextContent('No frames received.');
+    expect(screen.getByTestId('frames-intro')).toHaveTextContent('None has been received yet');
+    expect(screen.getByTestId('counter-rx')).toHaveTextContent('0');
+    expect(mon.written).toEqual([]);
+    openTab('faults');
+    openTab('overview');
+    expect(screen.getByTestId('faults-none')).toBeInTheDocument();
+    expect(document.body.textContent ?? '').not.toMatch(/demo/i);
+
+    // A real frame from Node 3: the examples disappear and the real row shows with its verdict.
+    await t.emit(
+      mon,
+      '{"type":"frame","sourceNode":"monitor","deviceTimeUs":12,"canId":"0x120","identifierFormat":"standard","remote":false,"dlc":8,"data":[0,0,0,0,0,0,0,222],"busState":"error_active","txErrorCount":0,"rxErrorCount":0,"kind":"motor_telemetry","check":"ok","accepted":true}',
+    );
+    openTab('traffic');
+    expect(screen.queryByTestId('example-frames')).toBeNull();
+    const table = screen.getByTestId('frame-table');
+    expect(within(table).getByText('0x120')).toBeInTheDocument();
+    expect(within(table).getByText('accepted')).toBeInTheDocument();
+  });
+
+  it('CAN controllers table: shorter normal-state wording, no echo or pin columns, real states kept', async () => {
+    const t = await setup();
+    const [n1, mon] = [new FakePort(), new FakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 })];
+    await t.add(n1);
+    await t.add(mon);
+    await t.emit(mon, LINES.helloMonitor, STATUS_MONITOR);
+    await t.emit(
+      n1,
+      LINES.helloNode1,
+      STATUS_MONITOR.replace('"sourceNode":"monitor"', '"sourceNode":"node1"').replace('"busState":"error_active"', '"busState":"bus_off"'),
+    );
+    openTab('diagnostics');
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).not.toContain('Transceiver echo');
+    expect(headers).not.toContain('Pin config');
+    expect(screen.getByTestId('node-monitor')).toHaveTextContent('Active (normal)');
+    expect(screen.getByTestId('node-monitor')).not.toHaveTextContent('Error active');
+    // A genuine bus-off is still reported as bus-off.
+    expect(screen.getByTestId('node-node1')).toHaveTextContent('BUS-OFF');
+    for (const row of [screen.getByTestId('node-monitor'), screen.getByTestId('node-node1')]) {
+      expect(within(row).getAllByRole('cell')).toHaveLength(headers.length - 1);  // + the row header
+    }
+  });
+
+  it('logs the OLED display command after an injection, with its result only from Node 3', async () => {
+    const t = await setup();
+    const ecu = new FakePort();
+    const mon = new FakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 });
+    await t.add(ecu);
+    await t.add(mon);
+    await t.emit(ecu, LINES.helloNode1);
+    await t.emit(mon, LINES.helloMonitor);
+    openTab('faults');
+    fireEvent.change(screen.getByLabelText('node1 fault to inject'), { target: { value: 'heartbeat_stop' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('inject-node1'));
+      await settle();
+    });
+    const faultId = ecu.lines()[0].slice(1).split(' ')[0];
+    await t.emit(ecu, LINES.ack('node1', faultId, 'ok', 'fault heartbeat_stop', 'demoFault=heartbeat_stop'));
+    expect(mon.lines()).toHaveLength(1);
+    const displayId = mon.lines()[0].slice(1).split(' ')[0];
+    const row = () => screen.getByTestId(`cmd-${displayId}`);
+    expect(row()).toHaveTextContent('display fault node1 heartbeat_stop');
+    expect(screen.getByTestId(`cmd-state-${displayId}`)).toHaveTextContent('waiting for ack');
+    expect(screen.getByTestId(`cmd-detail-${displayId}`)).toHaveTextContent('waiting for acknowledgement');  // nothing claimed yet
+
+    // An old Node 3 firmware without the command.
+    await t.emit(mon, LINES.ack('monitor', displayId, 'unsupported', 'display fault node1 heartbeat_stop', 'unsupported command (try help)', 'cafe0001'));
+    expect(screen.getByTestId(`cmd-state-${displayId}`)).toHaveTextContent('unsupported');
+    expect(screen.getByTestId(`cmd-detail-${displayId}`)).toHaveTextContent(/^unsupported command \(try help\)$/);  // the actual reason
+
+    // Reflashed Node 3 (new boot): the state is sent again and confirmed by its ack.
+    await t.emit(mon, LINES.helloMonitor.replace('cafe0001', 'cafe0002'));
+    const againId = mon.lines()[1].slice(1).split(' ')[0];
+    await t.emit(mon, LINES.ack('monitor', againId, 'ok', 'display fault node1 heartbeat_stop', 'OLED: commanded fault shown (display only, not a detection)', 'cafe0002'));
+    expect(screen.getByTestId(`cmd-detail-${againId}`)).toHaveTextContent(/^OLED updated$/);
+    expect(screen.getByTestId('command-log')).not.toHaveTextContent(/display only|not a detection/);
+    // The OLED ack is not a detection: the requested fault is still undetected.
+    await t.emit(ecu, ECU_STATE_FAULT);
+    await t.emit(mon, STATUS_MONITOR.replace('"deviceTimeUs":1', '"deviceTimeUs":2'), FAULTS_NONE.replace('cafe0001', 'cafe0002'));
+    expect(screen.getByTestId('expect-node1-HEARTBEAT_LOST')).toHaveTextContent('not detected (yet)');
+
+    // Clearing: the ECU acks, then Node 3 acks the display clear.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('clear-node1'));
+      await settle();
+    });
+    const clearId = ecu.lines().at(-1)!.slice(1).split(' ')[0];
+    await t.emit(ecu, LINES.ack('node1', clearId, 'ok', 'fault clear', 'demoFault=none'));
+    expect(mon.lines().at(-1)).toMatch(/^@\S+ display clear node1$/);
+    const displayClearId = mon.lines().at(-1)!.slice(1).split(' ')[0];
+    await t.emit(mon, LINES.ack('monitor', displayClearId, 'ok', 'display clear node1', 'OLED: commanded fault cleared (display only)', 'cafe0002'));
+    expect(screen.getByTestId(`cmd-detail-${displayClearId}`)).toHaveTextContent(/^OLED cleared$/);
+    expect(screen.getByTestId('command-log')).not.toHaveTextContent(/display only|not a detection/);
   });
 
   it('shows a commanded demo fault as not detected until Node 3 independently reports it', async () => {
@@ -181,8 +291,9 @@ describe('DashboardPage in physical mode', () => {
     expect(screen.getByTestId('status-usb')).toHaveTextContent('3 of 3 connected');
     expect(screen.getByTestId('status-traffic')).toHaveTextContent('No CAN traffic received');
     expect(screen.getByTestId('status-bus')).toHaveTextContent('Error passive');
-    expect(screen.getByTestId('finding-no-ack')).toHaveTextContent('Frames are not acknowledged on the CAN bus');
-    expect(screen.getByTestId('finding-no-ack')).toHaveTextContent('Node 3 has received 0 frame(s)');
+    // The CAN link check section is gone from the Overview, with all of its cards.
+    expect(screen.queryByText('CAN link check')).toBeNull();
+    expect(screen.queryByTestId('finding-no-ack')).toBeNull();
     expect(screen.queryByTestId('finding-healthy')).toBeNull();
     expect(screen.getByTestId('connection-status')).toHaveTextContent('USB: 3 of 3 boards');
   });

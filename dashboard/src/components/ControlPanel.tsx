@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { COMMAND_PARAMS, nodeLabel, physicalRange, unitLabel, validateCommandValue, type CommandParam } from '../lib/protocol';
 import { DEMO_FAULTS, PROFILES } from '../lib/protocol-spec.generated';
 import type { CommandRecord } from '../lib/serial/command-tracker';
+import { isDisplayCommand } from '../lib/serial/oled-sync';
 import type { DeviceNode, EcuNode } from '../types/events';
 
 interface Props {
@@ -80,9 +81,9 @@ function EcuControls({ node, send, connected }: { node: EcuNode; send: NonNullab
         </div>
       </fieldset>
       <fieldset disabled={!connected}>
-        <legend className="small muted">Demonstration fault (changes what this ECU transmits)</legend>
+        <legend className="small muted">Fault injection (changes what this ECU transmits)</legend>
         <div className="row">
-          <select aria-label={`${node} demo fault`} value={fault} onChange={(e) => setFault(e.target.value)}>
+          <select aria-label={`${node} fault to inject`} value={fault} onChange={(e) => setFault(e.target.value)}>
             {DEMO_FAULTS.map((d) => (
               <option key={d.name} value={d.name} title={d.description}>
                 {d.name}
@@ -162,9 +163,6 @@ function MonitorControls({ send, connected }: { send: NonNullable<Props['send']>
       {!connected && <Offline node="monitor" />}
       <fieldset disabled={!connected}>
         <div className="row">
-          <button type="button" onClick={() => void send('monitor', 'silence')} title="Silence the buzzer until the next new critical fault">
-            Silence alarm
-          </button>
           <button type="button" onClick={() => void send('monitor', 'frames on')}>
             Raw frames on
           </button>
@@ -205,6 +203,15 @@ const STATE_TONE: Record<CommandRecord['state'], string> = {
   connection_lost: 'bad',
 };
 
+/**
+ * Detail for a "display" command to Node 3: a short OLED result once Node 3
+ * acknowledged it ok, otherwise the actual reason (device detail or local failure).
+ */
+function displayDetail(c: CommandRecord): string {
+  if (c.state !== 'ok') return c.detail;
+  return /^display clear( |$)/.test(c.text) ? 'OLED cleared' : 'OLED updated';
+}
+
 export function CommandLog({ commands, nowMs }: { commands: readonly CommandRecord[]; nowMs: number }) {
   return (
     <div className="card command-log" data-testid="command-log">
@@ -235,8 +242,8 @@ export function CommandLog({ commands, nowMs }: { commands: readonly CommandReco
                       <span className="muted small"> {c.resolvedAtMs - c.sentAtMs} ms</span>
                     )}
                   </td>
-                  <td className="small">
-                    {c.detail}
+                  <td className="small" data-testid={`cmd-detail-${c.id}`}>
+                    {isDisplayCommand(c.text) ? displayDetail(c) : c.detail}
                     {c.lateAck && <span className="tone-warn"> (late reply: {c.lateAck})</span>}
                   </td>
                 </tr>

@@ -33,7 +33,7 @@ What you see:
 - **Observed on CAN by Node 3**: values, heartbeat/telemetry state and faults that the monitor derived from frames it actually received. Without Node 3 connected, these are shown as *unavailable* and fault status as *unknown*. They are never filled in from anything else.
 - **Reported by the ECU over its own USB (commanded)**: setpoints, demo fault and TX counters from `ecu_state`.
 - **Commanded demo faults**: each expected detection is ticked only when Node 3 reports it.
-- **Controls**: set values, generation profile, demo faults, bus-off recovery (ECUs), plus silence alarm, raw frames on/off and recovery (monitor).
+- **Controls**: set values, generation profile, demo faults, bus-off recovery (ECUs), plus raw frames on/off and recovery (monitor).
   - Values are checked in the page with the firmware's own rules; a rejected value is shown as *Not sent*.
   - Every command is tracked in the **Command log** as *waiting for ack*, then *acknowledged*, *rejected*, *unsupported*, *timeout* (1.5 s), *connection lost* or *not sent*.
   - Controls for a node that is not connected are disabled with the reason shown.

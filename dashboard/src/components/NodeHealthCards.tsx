@@ -1,8 +1,7 @@
-import { TRANSCEIVER_CHECK_TEXT } from '../lib/bus-diagnosis';
 import { isNodeStale, type NodeHealth } from '../lib/dashboard-state';
 import { BUS_STATE_LABEL, BUS_STATE_TONE, formatAge } from '../lib/format';
 import { nodeLabel } from '../lib/protocol';
-import type { DeviceNode } from '../types/events';
+import type { BusState, DeviceNode } from '../types/events';
 import { StatusLabel } from './StatusIcon';
 
 interface Props {
@@ -12,6 +11,8 @@ interface Props {
 
 const KNOWN: readonly string[] = ['node1', 'node2', 'monitor'];
 const label = (n: string) => (KNOWN.includes(n) ? nodeLabel(n as DeviceNode) : n);
+// Shorter wording for this table only; the reported state itself is unchanged.
+const stateLabel = (s: BusState) => (s === 'error_active' ? 'Active (normal)' : BUS_STATE_LABEL[s]);
 
 /** CAN controller state as each board reports it on its own USB port. */
 export function NodeHealthCards({ nodes, nowMs }: Props) {
@@ -42,15 +43,12 @@ export function NodeHealthCards({ nodes, nowMs }: Props) {
                 <th scope="col" className="num">TX failed</th>
                 <th scope="col" className="num">Bus errors</th>
                 <th scope="col" className="num">RX missed</th>
-                <th scope="col">Transceiver echo</th>
-                <th scope="col">Pin config</th>
               </tr>
             </thead>
             <tbody>
               {list.map((n) => {
                 const s = n.status;
                 const stale = isNodeStale(n, nowMs);
-                const echo = s?.transceiverCheck ?? null;
                 return (
                   <tr key={n.node} className={stale ? 'dimmed' : ''} data-testid={`node-${n.node}`}>
                     <th scope="row">{label(n.node)}</th>
@@ -64,7 +62,7 @@ export function NodeHealthCards({ nodes, nowMs }: Props) {
                       ) : !s.driverRunning && s.busState !== 'bus_off' ? (
                         <StatusLabel tone="bad">not running</StatusLabel>
                       ) : (
-                        <StatusLabel tone={BUS_STATE_TONE[s.busState]}>{BUS_STATE_LABEL[s.busState]}</StatusLabel>
+                        <StatusLabel tone={BUS_STATE_TONE[s.busState]}>{stateLabel(s.busState)}</StatusLabel>
                       )}
                     </td>
                     <td>{s ? `${s.mode}${s.txEnabled ? '' : ', TX off'}` : '—'}</td>
@@ -74,18 +72,6 @@ export function NodeHealthCards({ nodes, nowMs }: Props) {
                     <td className={`num mono ${s && s.txFailed > 0 ? 'tone-warn' : ''}`}>{s ? s.txFailed : '—'}</td>
                     <td className={`num mono ${s && s.busErrors > 0 ? 'tone-warn' : ''}`}>{s ? s.busErrors : '—'}</td>
                     <td className={`num mono ${s && s.rxMissed > 0 ? 'tone-warn' : ''}`}>{s ? s.rxMissed : '—'}</td>
-                    <td title={echo ? TRANSCEIVER_CHECK_TEXT[echo].hint : 'Not reported by this firmware'}>
-                      {echo === null ? (
-                        <span className="muted">not reported</span>
-                      ) : (
-                        <StatusLabel tone={echo === 'ok' ? 'ok' : echo === 'not_run' ? 'muted' : 'bad'}>
-                          {TRANSCEIVER_CHECK_TEXT[echo].label}
-                        </StatusLabel>
-                      )}
-                    </td>
-                    <td className={s && s.configStatus !== 'VERIFIED' ? 'tone-warn small' : 'small'}>
-                      {s ? s.configStatus.toLowerCase().replace(/_/g, ' ') : '—'}
-                    </td>
                   </tr>
                 );
               })}
@@ -93,10 +79,6 @@ export function NodeHealthCards({ nodes, nowMs }: Props) {
           </table>
         </div>
       )}
-      <p className="small muted">
-        Transceiver echo: at start-up each board pulses its TX pin and checks that RX follows. It proves the TX/RX wiring and
-        transceiver power, not CANH/CANL or termination.
-      </p>
     </section>
   );
 }

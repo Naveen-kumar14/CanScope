@@ -196,6 +196,10 @@ table.frames tbody tr { cursor: pointer; }
 table.frames tbody tr:hover { background: var(--surface-2); }
 table.frames tbody tr.selected { background: #1a3044; }
 table.frames tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.example-frames { margin-top: var(--s3); }
+.example-frames table.frames tbody tr { cursor: default; }
+.example-frames table.frames tbody tr:hover { background: none; }
+.example-frames table.frames td:last-child { white-space: normal; }
 table.mini th, table.mini td { padding: 3px 6px; font-size: 12px; white-space: nowrap; }
 
 /* ---------- live CAN ---------- */
@@ -260,7 +264,6 @@ dt { color: var(--muted); }
 dd { margin: 0; min-width: 0; }
 details > summary { cursor: pointer; }
 
-.footer { padding: var(--s3) var(--s5); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
@@ -268,7 +271,7 @@ details > summary { cursor: pointer; }
 }
 @media (max-width: 640px) {
   main { padding: var(--s3) var(--s4) var(--s5); }
-  .status-bar, .footer { padding-left: var(--s4); padding-right: var(--s4); }
+  .status-bar { padding-left: var(--s4); padding-right: var(--s4); }
   .tab-list { padding: 0 var(--s2); }
   .value-num { font-size: 20px; }
 }

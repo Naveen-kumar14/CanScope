@@ -122,11 +122,26 @@ def validate(ledger: dict) -> list[str]:
         comps_in = {parse_ep(c["from"]).comp, parse_ep(c["to"]).comp}
         if ends & {"CANH", "CANL"} and any(comps.get(x, {}).get("kind") == "esp32" for x in comps_in):
             problems.append(f"{c['id']}: CANH/CANL wired to an ESP32 pin")
-        if "BZ1" in comps_in and any(comps.get(x, {}).get("kind") == "esp32" for x in comps_in):
-            if parse_ep(c["from"]).pin != "VIN":
-                problems.append(f"{c['id']}: ESP32 GPIO wired directly to the buzzer")
         if "VIN" in ends and ("3V3" in ends or "3V3+" in ends):
             problems.append(f"{c['id']}: 5 V VIN joined to a 3V3 point")
+    # A GPIO carries one signal: at most one row that is not BLOCKED per ESP32 GPIO.
+    gpio_rows: dict[tuple[str, int], list[str]] = {}
+    for c in ledger["connections"]:
+        if c["status"] == "BLOCKED":
+            continue
+        for side in ("from", "to"):
+            ep = parse_ep(c[side])
+            if comps.get(ep.comp, {}).get("kind") != "esp32":
+                continue
+            try:
+                g = esp_pin(ledger, ep.pin)["gpio"]
+            except KeyError:
+                continue
+            if g is not None:
+                gpio_rows.setdefault((ep.comp, g), []).append(c["id"])
+    for (comp, g), ids in sorted(gpio_rows.items()):
+        if len(ids) > 1:
+            problems.append(f"{comp} GPIO{g} used by more than one wire: {', '.join(ids)}")
     # 3V3 of different nodes must never meet.
     nets = _nets(ledger)
     for net in nets:

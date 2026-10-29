@@ -26,7 +26,7 @@ A successful compile **never** verifies hardware.
 | Identifier format | standard 11-bit in legacy sketch | Unverified | Firmware handles both formats |
 | Production CAN IDs and payloads | none | Unverified | Only test-sketch IDs 0x201/0x202/0x203/0x210 are known, from source |
 | Termination (2 × 120 Ω at bus ends) | n/a | Unverified | Measure about 60 Ω CANH–CANL with power off |
-| Node 3 role, sensors, I/O | CANScope Monitor: SSD1306 (21/22), LEDs 25/26/27, buttons 32/33, buzzer drive 13 | Working assumption / buzzer BLOCKED | Wiring ledger (PROVISIONAL). Buzzer output disabled until gate G10 (Q1 pinout) passes |
+| Node 3 role, sensors, I/O | CANScope Monitor: SSD1306 (21/22), LEDs 26/27 (green: no verified pin, N3-14 BLOCKED). No buttons, no buzzer | Working assumption | Wiring ledger (PROVISIONAL). GPIO25/32/33 unused |
 | Dashboard transport and deployment | Web Serial from `http://localhost` (Chrome/Edge) | Implemented, not hardware-tested | Unit/integration tests use an in-memory serial double only |
 
 ## How a value becomes verified

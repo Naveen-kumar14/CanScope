@@ -137,7 +137,7 @@ def draw_measure(c: D.Canvas, kind):
                    "EXPECT: 3.0 - 3.6 V"),
         "power2": ("Node 2 alone on USB", "Serial monitor 115200 baud", "RED: TRX2 3V3   BLACK: TRX2 GND",
                    "EXPECT: 3.0 - 3.6 V"),
-        "power3": ("Node 3 alone on USB", "RED: TRX3 3V3 (3.0-3.6 V), then VIN (4.4-5.25 V, G12)",
+        "power3": ("Node 3 alone on USB", "RED: TRX3 3V3 (3.0-3.6 V)",
                    "BLACK: Node 3 GND rail", "EXPECT: values inside both ranges"),
     }
     head, l1, l2, exp = titles[kind]

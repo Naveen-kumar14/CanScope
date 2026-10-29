@@ -205,6 +205,148 @@ describe('PhysicalSource', () => {
     expect(t.source.getSnapshot().commands[0].state).toBe('pending');
   });
 
+  describe('Node 3 OLED display of commanded faults', () => {
+    async function threeBoards() {
+      const t = setup();
+      const n1 = new FakePort();
+      const n2 = new FakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 });
+      const mon = new FakePort({ usbVendorId: 0x303a, usbProductId: 0x1001 });
+      await t.add(n1);
+      await t.add(n2);
+      await t.add(mon);
+      n1.emit(`${LINES.helloNode1}\n`);
+      n2.emit(`${LINES.helloNode2}\n`);
+      mon.emit(`${LINES.helloMonitor}\n`);
+      await settle();
+      return { t, n1, n2, mon };
+    }
+    const BOOT: Record<string, string> = { node1: 'deadbeef', node2: '0000beef', monitor: 'cafe0001' };
+
+    /** Sends `fault <name>` to an ECU and acks it from that ECU. */
+    async function inject(t: Awaited<ReturnType<typeof threeBoards>>['t'], port: FakePort, node: 'node1' | 'node2', arg: string, status = 'ok') {
+      const r = await t.source.sendCommand(node, `fault ${arg}`);
+      port.emit(`${LINES.ack(node, r.id, status, `fault ${arg}`, 'test', BOOT[node])}\n`);
+      await settle();
+      return r;
+    }
+    const last = (t: Awaited<ReturnType<typeof threeBoards>>['t']) => t.source.getSnapshot().commands[0];
+    async function ackMonitor(t: Awaited<ReturnType<typeof threeBoards>>['t'], mon: FakePort, status = 'ok', bootId = 'cafe0001') {
+      const rec = last(t);
+      mon.emit(`${LINES.ack('monitor', rec.id, status, rec.text, 'OLED test', bootId)}\n`);
+      await settle();
+      return t.source.getSnapshot().commands.find((c) => c.id === rec.id)!;
+    }
+
+    it('Node 1, Node 2, both, then clearing one and both, each confirmed only by Node 3', async () => {
+      const { t, n1, n2, mon } = await threeBoards();
+
+      const r = await inject(t, n1, 'node1', 'heartbeat_stop');
+      expect(t.source.getSnapshot().commands.find((c) => c.id === r.id)!.state).toBe('ok');
+      expect(last(t)).toMatchObject({ node: 'monitor', text: 'display fault node1 heartbeat_stop', state: 'pending' });
+      expect(mon.lines()).toEqual([`@${last(t).id} display fault node1 heartbeat_stop`]);
+      expect((await ackMonitor(t, mon)).state).toBe('ok');
+
+      await inject(t, n2, 'node2', 'heartbeat_stop');
+      expect(mon.lines()[1]).toMatch(/^@\S+ display fault node2 heartbeat_stop$/);
+      expect((await ackMonitor(t, mon)).state).toBe('ok');
+
+      // Duplicate inject: the ECU acks again, nothing new goes to Node 3.
+      await inject(t, n1, 'node1', 'heartbeat_stop');
+      expect(mon.lines()).toHaveLength(2);
+
+      await inject(t, n1, 'node1', 'clear');
+      expect(mon.lines()[2]).toMatch(/^@\S+ display clear node1$/);  // Node 2 left alone
+      expect((await ackMonitor(t, mon)).state).toBe('ok');
+      await inject(t, n2, 'node2', 'clear');
+      expect(mon.lines()[3]).toMatch(/^@\S+ display clear node2$/);
+      expect((await ackMonitor(t, mon)).state).toBe('ok');
+      expect(mon.lines()).toHaveLength(4);
+
+      // No CAN frame was ever received, and the dashboard invented no detection.
+      expect(t.events.filter((e) => e.type === 'frame' || e.type === 'fault' || e.type === 'faults')).toEqual([]);
+    });
+
+    it('does not forward a rejected ECU command or a non-fault command', async () => {
+      const { t, n1, mon } = await threeBoards();
+      await inject(t, n1, 'node1', 'explode', 'rejected');
+      const set = await t.source.sendCommand('node1', 'set rpm 3000');
+      n1.emit(`${LINES.ack('node1', set.id, 'ok', 'set rpm 3000', 'rpm=3000')}\n`);
+      await settle();
+      expect(mon.lines()).toEqual([]);
+    });
+
+    it('reports an unsupported display command and does not retry it on the same Node 3 boot', async () => {
+      const { t, n1, mon } = await threeBoards();
+      await inject(t, n1, 'node1', 'heartbeat_stop');
+      const rec = await ackMonitor(t, mon, 'unsupported');
+      expect(rec).toMatchObject({ text: 'display fault node1 heartbeat_stop', state: 'unsupported' });
+      mon.emit(`${LINES.helloMonitor}\n`);
+      await settle();
+      expect(mon.lines()).toHaveLength(1);
+      // After Node 3 is reflashed (new boot) the state is sent again.
+      mon.emit(`${LINES.helloMonitor.replace('cafe0001', 'cafe0002')}\n`);
+      await settle();
+      expect(mon.lines()[1]).toMatch(/^@\S+ display fault node1 heartbeat_stop$/);
+      expect((await ackMonitor(t, mon, 'ok', 'cafe0002')).state).toBe('ok');
+    });
+
+    it('a missing acknowledgement is a timeout, never success, and is retried at the next hello', async () => {
+      const { t, n1, mon } = await threeBoards();
+      await inject(t, n1, 'node1', 'bad_checksum');
+      const sent = last(t);
+      t.advance(1500);
+      t.source.tick();
+      expect(t.source.getSnapshot().commands.find((c) => c.id === sent.id)!.state).toBe('timeout');
+      // A late ok does not turn it into success.
+      mon.emit(`${LINES.ack('monitor', sent.id, 'ok', sent.text, 'late', 'cafe0001')}\n`);
+      await settle();
+      expect(t.source.getSnapshot().commands.find((c) => c.id === sent.id)!.state).toBe('timeout');
+      expect(mon.lines()).toHaveLength(1);
+      mon.emit(`${LINES.helloMonitor}\n`);
+      await settle();
+      expect(mon.lines()[1]).toMatch(/^@\S+ display fault node1 bad_checksum$/);
+      expect((await ackMonitor(t, mon)).state).toBe('ok');
+    });
+
+    it('with Node 3 disconnected, logs the update as not sent and sends the current state after it reconnects', async () => {
+      const { t, n1, n2, mon } = await threeBoards();
+      await inject(t, n2, 'node2', 'silent');
+      await ackMonitor(t, mon);
+      mon.unplug();
+      t.api.fire('disconnect', mon);
+      await settle();
+      expect(t.source.linkFor('monitor')).toBeNull();
+
+      await inject(t, n1, 'node1', 'heartbeat_stop');
+      expect(last(t)).toMatchObject({
+        node: 'monitor',
+        text: 'display fault node1 heartbeat_stop',
+        state: 'not_sent',
+        detail: 'Node 3 not connected; sent when it reconnects',
+      });
+      const written = mon.lines().length;
+
+      t.api.fire('connect', mon);
+      await settle();
+      mon.emit(`${LINES.helloMonitor}\n`);  // same boot: it kept the old display state
+      await settle();
+      const resent = mon.lines().slice(written);
+      expect(resent).toHaveLength(2);
+      expect(resent[0]).toMatch(/^@\S+ display fault node1 heartbeat_stop$/);
+      expect(resent[1]).toMatch(/^@\S+ display fault node2 silent$/);
+    });
+
+    it('a display command pending when Node 3 is unplugged fails as connection lost', async () => {
+      const { t, n1, mon } = await threeBoards();
+      await inject(t, n1, 'node1', 'counter_freeze');
+      const sent = last(t);
+      mon.unplug();
+      t.api.fire('disconnect', mon);
+      await settle();
+      expect(t.source.getSnapshot().commands.find((c) => c.id === sent.id)!.state).toBe('connection_lost');
+    });
+  });
+
   it('refuses to send to a node that is not connected, without writing anything', async () => {
     const t = setup();
     const port = new FakePort();

@@ -162,5 +162,5 @@
   },
   "profiles": ["static", "drive"],
   "commonCommands": ["hello", "status", "help", "recover"],
-  "monitorCommands": ["faults", "frames", "silence"]
+  "monitorCommands": ["faults", "frames", "display"]
 }

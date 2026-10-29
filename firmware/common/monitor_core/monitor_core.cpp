@@ -178,7 +178,7 @@ void MonitorCore::on_controller(const ControllerSnapshot& snap, uint32_t now_ms)
 
   if (bus_off) {
     raise(FaultCode::MonitorBusOff, m, now_ms,
-          "monitor controller bus-off; node timeouts suspended (Button B long press or 'recover')");
+          "monitor controller bus-off; node timeouts suspended (send 'recover')");
   } else {
     clear(FaultCode::MonitorBusOff, m, now_ms, "controller left bus-off");
   }

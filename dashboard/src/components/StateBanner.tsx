@@ -47,11 +47,6 @@ export function StateBanner({ view, origin, detail, lastEventAgeMs }: Props) {
           but the values below are not current.
         </div>
       )}
-      {view === 'empty' && (
-        <div className="banner banner-info" role="status" data-testid="state-empty">
-          Connected — no CAN frames received yet{origin === 'live' ? ' (connect Node 3, the monitor, to see bus traffic)' : ''}.
-        </div>
-      )}
     </>
   );
 }

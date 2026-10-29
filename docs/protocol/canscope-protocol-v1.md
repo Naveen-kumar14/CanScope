@@ -118,7 +118,7 @@ All values come from `timing` in the JSON. Node 3 uses only what it receives and
 - When monitoring resumes, a fresh grace period starts.
 - If an ECU's last heartbeat reported error passive and then the heartbeat stops, the `HEARTBEAT_LOST` detail says "ECU was error passive (bus-off?)".
 - The ECU's own USB `status` / `ecu_state` lines report its actual bus-off.
-- Bus-off recovery is never automatic. It takes serial `recover` or Node 3 button B long press.
+- Bus-off recovery is never automatic. It takes the serial `recover` command.
 
 ### Demonstration faults (ECU side)
 
@@ -162,7 +162,7 @@ ESP32 ROM boot messages are printed at 115200 baud, so they appear as a few inva
 | `node_health` | monitor | every 1 s per ECU | heartbeat/telemetry link state, ages, ECU firmware/version/CAN state, reject counters |
 | `fault` | monitor | on every raise / clear | `eventId` (monotonic per `bootId`), code, node, severity, `state` `active`/`cleared`, detail |
 | `faults` | monitor | every 1 s | authoritative list of active faults (≤ 10 listed; `count` and `truncated` tell the truth) |
-| `selftest` | monitor | boot, on `hello` | CAN init result, OLED probe, buttons at boot, buzzer build state |
+| `selftest` | monitor | boot, on `hello` | CAN init result, OLED probe, LED note |
 
 The exact shapes are asserted in `test/firmware_host/test_serial_link.cpp`, `test_ecu_core.cpp` and `test_monitor_ui.cpp`. The same lines are parsed in `dashboard/tests/serial-line-parser-v1.test.ts`.
 
@@ -176,11 +176,14 @@ The exact shapes are asserted in `test/firmware_host/test_serial_link.cpp`, `tes
 | `set voltage <0..60.00>` / `set current <-150.0..150.0>` / `set soc <0..100>` | | ✓ | |
 | `profile static\|drive` | ✓ | ✓ | |
 | `fault <demo fault>\|clear` | ✓ | ✓ | |
-| `faults`, `frames on\|off`, `silence` | | | ✓ |
+| `faults`, `frames on\|off` | | | ✓ |
+| `display fault node1\|node2 <demo fault>` / `display clear [node1\|node2]` | | | ✓ |
 
 Numbers are parsed exactly, without floating point. The rules: an optional sign, digits, and at most as many decimals as the field allows (rpm 0, temp/current 1, voltage 2, SoC 0). Exponents, hex, trailing characters, out-of-range values and unknown parameters are rejected, and the setpoint stays unchanged. A verb the node does not handle returns `unsupported`. `drive` varies values deterministically around the setpoint (rpm ±8 %/10 s, temp ±1.0 °C/30 s, voltage ±0.30 V/20 s, current ±15 %/8 s) and stays inside the valid ranges.
 
 An `ok` ack means the ECU accepted the setting. It does **not** mean the monitor saw it; only Node 3's `telemetry` / `fault` lines say that.
+
+`display` tells Node 3 which demo fault an ECU was commanded. The dashboard sends it after the ECU's `ok` ack for `fault …`, and whenever the ECU's `ecu_state` reports a different demo fault. It does one thing: while any commanded fault is set, OLED page 0 shows only `Node n:` and the readable fault name for each ECU, instead of the summary. Clearing is per ECU (`display clear node1`), and `display clear` clears both. A repeated command is acknowledged and changes nothing. An unknown ECU or fault name is `rejected` and changes nothing. The commanded state is kept apart from detection. It is not an input to fault detection, changes no counter, and never appears in `fault` / `faults` lines. The OLED counts as updated only after Node 3's `ok` ack. On a timeout or a lost link, the dashboard sends the update again at Node 3's next `hello`. After `unsupported`/`rejected` it waits for a new value or a new Node 3 boot. While a commanded fault is set, the OLED stays on this view; otherwise its pages rotate by themselves every 5 s (Node 3 has no buttons).
 
 ## 4. Versions
 

@@ -19,7 +19,7 @@ Rules:
 | Sample point / timing | ESP-IDF `TWAI_TIMING_CONFIG_500KBITS` preset | Working assumption | Driver default |
 | Byte order | big-endian | Specified (v1) | protocol v1 spec (legacy sketch also big-endian) |
 | Heartbeat / timeout | 0x701/0x702 every 500 ms, lost after 1500 ms | Specified (v1) | protocol v1 spec |
-| Error handling | Bus-off reported, recovery only on operator request (`recover`, Node 3 button B long press) | Design decision | `docs/protocol/canscope-protocol-v1.md` |
+| Error handling | Bus-off reported, recovery only on operator request (`recover`) | Design decision | `docs/protocol/canscope-protocol-v1.md` |
 
 ## Production registry: CANScope protocol v1
 

@@ -134,7 +134,7 @@ function EcuCard({ node, state, nowMs, usbConnected }: { node: EcuNode; state: D
               </tbody>
             </table>
             <p className="small muted">
-              profile {self.event.profile} · demo fault{' '}
+              profile {self.event.profile} · injected fault{' '}
               <strong className={self.event.demoFault !== 'none' ? 'tone-warn' : ''}>{self.event.demoFault}</strong> · CAN{' '}
               {self.event.canRunning ? self.event.busState : <span className="tone-bad">not running</span>} · TX ok{' '}
               {self.event.txOk} / failed <span className={self.event.txFailed ? 'tone-warn' : ''}>{self.event.txFailed}</span>
